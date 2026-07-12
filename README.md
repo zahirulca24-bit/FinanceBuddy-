@@ -2,7 +2,7 @@
 
 **Personal accounting, bank reconciliation, tax preparation, debt tracking, reporting, and AI-assisted financial analysis.**
 
-> **Repository status:** Finance Buddy V2 is under controlled development. V2-001 security work remains open. The login-page visual redesign was pushed and audited, but its scope gate did not pass.
+> **Repository status:** Finance Buddy V2 is under controlled development. Work is **PAUSED** because the Google AI Studio credit/usage limit was reached on **13 July 2026 BDT**. V2-001 security work remains open, and the login-page visual redesign scope gate has not passed.
 
 ## Version Status
 
@@ -15,7 +15,9 @@
 | V2-001A correction | `88bf20080951793ba85aedfbb291c2f2d239a493` |
 | V2-001B attempt | `f3dff33d34d71f3b12a886d0579f17d1a5fdf14a` |
 | UI-LOGIN-001 implementation | `2a784975c7c871b9df9174ef6b2fcd7c3f7e1196` |
-| Audit date | **13 July 2026 BDT** |
+| Last session date | **13 July 2026 BDT** |
+| Development state | **PAUSED — AI Studio credit/usage limit reached** |
+| Planned resume | **14 July 2026 BDT** |
 | V2-001 verdict | **CHANGES REQUIRED** |
 | UI-LOGIN-001 verdict | **CHANGES REQUIRED** |
 | Production readiness | **Not production-ready** |
@@ -37,6 +39,47 @@ No test, build, preview, deployment, or runtime result is marked PASS without in
 6. Product Owner verifies preview and authorizes GitHub push.
 7. ChatGPT audits the pushed commit and updates this README.
 8. Do not start V2-002 until V2-001 is independently closed.
+
+---
+
+# Session Pause and Handoff
+
+## Pause Record — 13 July 2026 BDT
+
+Development stopped because the Google AI Studio credit/usage limit was exhausted. No additional implementation should be considered approved or complete after this pause unless it is pushed to GitHub and independently audited.
+
+## Resume Plan — 14 July 2026 BDT
+
+Resume in this exact order:
+
+1. **V2-001C — Final Authentication and Test Closure**
+   - Remove every remaining `preview-token` literal or special-case branch.
+   - Add strict `Origin` validation to preview-session creation.
+   - Ensure test environment variables are initialized before importing `server.ts`.
+   - Mock and verify the real `execFile` command and restore arguments.
+   - Run lint, Vitest, build, and Python tests with exact evidence.
+   - Verify development preview login, dashboard load, protected API access, and production preview rejection.
+
+2. **UI-LOGIN-001A — Login Panel Scope Correction**
+   - Preserve only the approved right-side 60% login visual panel.
+   - Revert unrelated `DashboardView.tsx` and `ReportsView.tsx` changes.
+   - Remove `recharts` and package changes unless strictly required by the login panel.
+   - Keep the left-side 40% login form and authentication behavior unchanged.
+   - Verify desktop, tablet, and mobile preview.
+
+3. **Demo Login Safety Review**
+   - No hardcoded password will be restored.
+   - Demo entry must require both `NODE_ENV !== "production"` and `VITE_ENABLE_PREVIEW_MODE=true`.
+   - Missing Supabase credentials alone must never activate Demo Admin access.
+   - Production must fail closed when Supabase authentication is unavailable.
+   - Demo session recovery must use only the server-generated HttpOnly cookie.
+   - Real production login must use a Supabase user account.
+
+4. Start **V2-002** only after V2-001 receives an independent PASS verdict.
+
+## Exact Next Instruction for AI Studio
+
+Do not begin from a new feature prompt. Begin with a narrowly scoped **V2-001C correction prompt** based on the blockers recorded in this README. Do not modify README.md and do not push automatically.
 
 ---
 
@@ -146,7 +189,14 @@ The left-side 40% login panel, authentication behavior, backend, database, Dashb
 
 # Dated V2 Roadmap
 
-## 13 July 2026 — V2-001C: Final Authentication and Test Closure — **ACTIVE BLOCKER**
+## 13 July 2026 — Development Session — **PAUSED**
+
+- [x] Repository and README status recorded.
+- [x] Current security and design blockers documented.
+- [x] Next-session order locked.
+- [x] Work paused because AI Studio credit/usage limit ended.
+
+## 14 July 2026 — V2-001C: Final Authentication and Test Closure — **NEXT**
 
 - [ ] Remove remaining `preview-token` special-case code.
 - [ ] Add preview endpoint Origin validation.
@@ -155,7 +205,7 @@ The left-side 40% login panel, authentication behavior, backend, database, Dashb
 - [ ] Run and record all required checks.
 - [ ] Complete independent audit and close V2-001.
 
-## 13 July 2026 — UI-LOGIN-001A: Login Panel Scope Correction — **ACTIVE**
+## After V2-001C — UI-LOGIN-001A: Login Panel Scope Correction
 
 - [ ] Revert unrelated Dashboard and Reports changes.
 - [ ] Remove unnecessary dependency changes.
@@ -163,7 +213,7 @@ The left-side 40% login panel, authentication behavior, backend, database, Dashb
 - [ ] Run lint, test, build, and preview checks.
 - [ ] Complete independent audit.
 
-## 14 July 2026 — V2-002: Database Contract and Migration Repair
+## V2-002: Database Contract and Migration Repair — **BLOCKED**
 
 - [ ] Add idempotent soft-delete and recovery migration.
 - [ ] Add durable debt records.
@@ -175,7 +225,7 @@ The left-side 40% login panel, authentication behavior, backend, database, Dashb
 
 **Completion gate:** V1 data migrates without loss; Trash/Restore works; RLS isolation passes.
 
-## 15–16 July 2026 — V2-003: Real Double-Entry Accounting Core
+## V2-003: Real Double-Entry Accounting Core
 
 - [ ] Define chart of accounts.
 - [ ] Add journal entries and journal lines.
@@ -186,32 +236,32 @@ The left-side 40% login panel, authentication behavior, backend, database, Dashb
 
 **Completion gate:** Every posting balances and statements reconcile to journal lines.
 
-## 17 July 2026 — V2-004: Transaction and AI Import Reliability
+## V2-004: Transaction and AI Import Reliability
 
 - [ ] Add shared validation schemas.
 - [ ] Validate dates, amounts, accounts, MIME types, and sizes.
 - [ ] Keep AI output as a reviewed draft.
 - [ ] Add duplicate detection and import tests.
 
-## 18 July 2026 — V2-005: Bank Reconciliation Engine
+## V2-005: Bank Reconciliation Engine
 
 - [ ] Separate import, matching, adjustment, completion, and reporting services.
 - [ ] Add exact, tolerance, date-window, and grouped matching.
 - [ ] Prevent duplicate imports and post approved adjustments through journals.
 
-## 19 July 2026 — V2-006: Tax, Debt, Reports, and Durability
+## V2-006: Tax, Debt, Reports, and Durability
 
 - [ ] Version tax configurations.
 - [ ] Persist debt schedules.
 - [ ] Add traceable exports and report reconciliation checks.
 
-## 20 July 2026 — V2-007: Backup, Restore, Audit, and Operations
+## V2-007: Backup, Restore, Audit, and Operations
 
 - [ ] Use durable encrypted object storage.
 - [ ] Cover all tables and files with manifests and checksums.
 - [ ] Add controlled restore and disaster-recovery rehearsal.
 
-## 21 July 2026 — V2-008: Test, CI, Deployment, and Release Gate
+## V2-008: Test, CI, Deployment, and Release Gate
 
 - [ ] Add frontend, API, RLS, and end-to-end test coverage.
 - [ ] Add GitHub Actions CI.
@@ -222,9 +272,10 @@ The left-side 40% login panel, authentication behavior, backend, database, Dashb
 
 ## Current Next Actions
 
-1. Complete **V2-001C** security and test closure.
-2. Complete **UI-LOGIN-001A** without changing Dashboard, Reports, backend, or authentication logic.
-3. Do not start V2-002 until V2-001 is independently closed.
+1. Resume with **V2-001C** on 14 July 2026 BDT.
+2. Complete **UI-LOGIN-001A** only after V2-001C is verified.
+3. Do not restore a hardcoded login password or unsafe Demo Admin bypass.
+4. Do not start V2-002 until V2-001 is independently closed.
 
 ## Disclaimer
 
