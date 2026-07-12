@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { supabase, isSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, getAuthHeader } from "../supabase";
 import { Account, Transaction, Category, TransactionType, AccountType, ReconciliationRecord, DebtDetail } from "../types";
 import { DEFAULT_ACCOUNTS, DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES } from "../lib/defaults";
 
@@ -153,18 +153,21 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [debtDetails, setDebtDetails] = useState<DebtDetail[]>([]);
   const [isDemoUser] = useState(false);
   
+  const checkLocalStorageMode = (): boolean => {
+    return !isSupabaseConfigured || user?.id === "00000000-0000-0000-0000-000000000000" || user?.role === "preview-admin";
+  };
+  
   const isSavingRef = useRef(false);
 
   const logAuditEvent = async (action: string, table: string, recordId: string, oldValue: any, newValue: any) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+      const authHeader = await getAuthHeader();
       
       await fetch("/api/audit", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          ...authHeader
         },
         body: JSON.stringify({ action, table, recordId, oldValue, newValue })
       });
@@ -249,9 +252,105 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
-  // Fetch all user ledger data from Supabase
+  const reloadDataLocal = (userId: string) => {
+    try {
+      // Load Accounts
+      let localAccsRaw = localStorage.getItem(`local_accounts_${userId}`);
+      if (!localAccsRaw) {
+        const initialAccounts = DEFAULT_ACCOUNTS.map((acc, index) => ({
+          id: `acc_${index}_${Math.random().toString(36).substr(2, 5)}`,
+          user_id: userId,
+          name: acc.name,
+          type: acc.type,
+          initial_balance: acc.initialBalance,
+          is_deleted: false,
+          created_at: new Date().toISOString()
+        }));
+        localStorage.setItem(`local_accounts_${userId}`, JSON.stringify(initialAccounts));
+        localAccsRaw = JSON.stringify(initialAccounts);
+      }
+      const parsedAccs = JSON.parse(localAccsRaw);
+      setAccounts(parsedAccs.filter((a: any) => !a.is_deleted).map(mapAccountFromDb));
+      setDeletedAccounts(parsedAccs.filter((a: any) => !!a.is_deleted).map(mapAccountFromDb));
+
+      // Load Transactions
+      let localTxsRaw = localStorage.getItem(`local_transactions_${userId}`);
+      if (!localTxsRaw) {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const firstAccountId = parsedAccs[0]?.id || "acc_demo_cash";
+        const initialTransactions = [
+          {
+            id: "tx_init_1",
+            user_id: userId,
+            date: todayStr,
+            type: "Income",
+            account: firstAccountId,
+            category: "Salary",
+            description: "Initial Salary Deposit (Demo)",
+            amount: 5000,
+            is_deleted: false,
+            created_at: new Date().toISOString()
+          },
+          {
+            id: "tx_init_2",
+            user_id: userId,
+            date: todayStr,
+            type: "Expense",
+            account: firstAccountId,
+            category: "Food",
+            description: "Restaurant Dining (Demo)",
+            amount: 120,
+            is_deleted: false,
+            created_at: new Date().toISOString()
+          }
+        ];
+        localStorage.setItem(`local_transactions_${userId}`, JSON.stringify(initialTransactions));
+        localTxsRaw = JSON.stringify(initialTransactions);
+      }
+      const parsedTxs = JSON.parse(localTxsRaw);
+      const mappedTx = parsedTxs.filter((t: any) => !t.is_deleted).map(mapTransactionFromDb);
+      mappedTx.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+      setTransactions(mappedTx);
+
+      const mappedDeletedTx = parsedTxs.filter((t: any) => !!t.is_deleted).map(mapTransactionFromDb);
+      mappedDeletedTx.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+      setDeletedTransactions(mappedDeletedTx);
+
+      // Load Categories
+      const localCatsRaw = localStorage.getItem(`local_categories_${userId}`) || "[]";
+      const parsedCats = JSON.parse(localCatsRaw);
+      setDbCategories(parsedCats.filter((c: any) => !c.is_deleted).map(mapCategoryFromDb));
+
+      // Load Reconciliations
+      const localRecsRaw = localStorage.getItem(`local_reconciliations_${userId}`) || "[]";
+      const parsedRecs = JSON.parse(localRecsRaw);
+      const mappedRec = parsedRecs.filter((r: any) => !r.is_deleted).map(mapReconciliationFromDb);
+      mappedRec.sort((a, b) => (b.createdDate || "").localeCompare(a.createdDate || ""));
+      setReconciliations(mappedRec);
+
+      // Load Budgets
+      const localBudgetsRaw = localStorage.getItem(`local_budgets_${userId}`) || "{}";
+      setCategoryBudgets(JSON.parse(localBudgetsRaw));
+
+      // Load Debts
+      const localDebts = localStorage.getItem(`debt_details_${userId}`);
+      setDebtDetails(localDebts ? JSON.parse(localDebts) : []);
+
+    } catch (err) {
+      console.error("Error loading mock data from localStorage:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch all user ledger data from Supabase or localStorage fallback
   const reloadData = async () => {
     if (!user) return;
+
+    if (checkLocalStorageMode()) {
+      reloadDataLocal(user.id);
+      return;
+    }
 
     try {
       // 1. Fetch Accounts
@@ -344,7 +443,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
     } catch (err) {
-      console.error("Error fetching financial data from Supabase:", err);
+      console.warn("Error fetching financial data from Supabase, falling back to localStorage:", err);
+      reloadDataLocal(user.id);
     } finally {
       setLoading(false);
     }
@@ -453,6 +553,36 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return withSaveLock(async () => {
       const txId = "tx_" + Math.random().toString(36).substr(2, 9);
 
+      if (!isSupabaseConfigured) {
+        const localTxsRaw = localStorage.getItem(`local_transactions_${user.id}`) || "[]";
+        const parsedTxs = JSON.parse(localTxsRaw);
+        const newTx = {
+          id: txId,
+          user_id: user.id,
+          date: tx.date,
+          type: tx.type,
+          account: tx.account,
+          to_account: tx.toAccount || null,
+          category: tx.category,
+          description: tx.description,
+          amount: Number(tx.amount) || 0,
+          payment_method: tx.paymentMethod || null,
+          reference_number: tx.referenceNumber || null,
+          notes: tx.notes || null,
+          is_receivable: !!tx.isReceivable,
+          is_payable: !!tx.isPayable,
+          is_cleared: !!tx.isCleared,
+          is_deleted: false,
+          created_at: new Date().toISOString()
+        };
+        parsedTxs.push(newTx);
+        localStorage.setItem(`local_transactions_${user.id}`, JSON.stringify(parsedTxs));
+        const mapped = mapTransactionFromDb(newTx);
+        await logAuditEvent("CREATE", "transactions", txId, null, mapped);
+        await reloadData();
+        return;
+      }
+
       const { data, error } = await supabase.from("transactions").insert({
         id: txId,
         user_id: user.id,
@@ -483,7 +613,41 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const updateTransaction = async (id: string, tx: Partial<Transaction>) => {
     if (!user) return;
     return withSaveLock(async () => {
-      const oldVal = transactions.find(t => t.id === id);
+      const oldVal = transactions.find(t => t.id === id) || deletedTransactions.find(t => t.id === id);
+
+      if (!isSupabaseConfigured) {
+        const localTxsRaw = localStorage.getItem(`local_transactions_${user.id}`) || "[]";
+        let parsedTxs = JSON.parse(localTxsRaw);
+        parsedTxs = parsedTxs.map((t: any) => {
+          if (t.id === id) {
+            return {
+              ...t,
+              date: tx.date !== undefined ? tx.date : t.date,
+              type: tx.type !== undefined ? tx.type : t.type,
+              account: tx.account !== undefined ? tx.account : t.account,
+              to_account: tx.toAccount !== undefined ? (tx.toAccount || null) : t.to_account,
+              category: tx.category !== undefined ? tx.category : t.category,
+              description: tx.description !== undefined ? tx.description : t.description,
+              amount: tx.amount !== undefined ? (Number(tx.amount) || 0) : t.amount,
+              payment_method: tx.paymentMethod !== undefined ? (tx.paymentMethod || null) : t.payment_method,
+              reference_number: tx.referenceNumber !== undefined ? (tx.referenceNumber || null) : t.reference_number,
+              notes: tx.notes !== undefined ? (tx.notes || null) : t.notes,
+              is_receivable: tx.isReceivable !== undefined ? !!tx.isReceivable : t.is_receivable,
+              is_payable: tx.isPayable !== undefined ? !!tx.isPayable : t.is_payable,
+              is_cleared: tx.isCleared !== undefined ? !!tx.isCleared : t.is_cleared
+            };
+          }
+          return t;
+        });
+        localStorage.setItem(`local_transactions_${user.id}`, JSON.stringify(parsedTxs));
+        const updated = parsedTxs.find((t: any) => t.id === id);
+        if (updated) {
+          await logAuditEvent("UPDATE", "transactions", id, oldVal, mapTransactionFromDb(updated));
+        }
+        await reloadData();
+        return;
+      }
+
       const updatePayload: any = {};
       if (tx.date !== undefined) updatePayload.date = tx.date;
       if (tx.type !== undefined) updatePayload.type = tx.type;
@@ -520,6 +684,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     return withSaveLock(async () => {
       const oldVal = transactions.find(t => t.id === id);
+
+      if (!isSupabaseConfigured) {
+        const localTxsRaw = localStorage.getItem(`local_transactions_${user.id}`) || "[]";
+        let parsedTxs = JSON.parse(localTxsRaw);
+        parsedTxs = parsedTxs.map((t: any) => {
+          if (t.id === id) {
+            return { ...t, is_deleted: true };
+          }
+          return t;
+        });
+        localStorage.setItem(`local_transactions_${user.id}`, JSON.stringify(parsedTxs));
+        await logAuditEvent("DELETE", "transactions", id, oldVal, { is_deleted: true });
+        await reloadData();
+        return;
+      }
+
       const { error } = await supabase
         .from("transactions")
         .update({ is_deleted: true })
@@ -547,6 +727,21 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const restoreTransaction = async (id: string) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (!isSupabaseConfigured) {
+        const localTxsRaw = localStorage.getItem(`local_transactions_${user.id}`) || "[]";
+        let parsedTxs = JSON.parse(localTxsRaw);
+        parsedTxs = parsedTxs.map((t: any) => {
+          if (t.id === id) {
+            return { ...t, is_deleted: false };
+          }
+          return t;
+        });
+        localStorage.setItem(`local_transactions_${user.id}`, JSON.stringify(parsedTxs));
+        await logAuditEvent("RESTORE", "transactions", id, { is_deleted: true }, { is_deleted: false });
+        await reloadData();
+        return;
+      }
+
       const { error } = await supabase
         .from("transactions")
         .update({ is_deleted: false })
@@ -564,6 +759,26 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     return withSaveLock(async () => {
       const accId = "acc_" + Math.random().toString(36).substr(2, 9);
+
+      if (!isSupabaseConfigured) {
+        const localAccsRaw = localStorage.getItem(`local_accounts_${user.id}`) || "[]";
+        const parsedAccs = JSON.parse(localAccsRaw);
+        const newAcc = {
+          id: accId,
+          user_id: user.id,
+          name,
+          type,
+          initial_balance: Number(initialBalance) || 0,
+          target_goal: targetGoal !== undefined ? Number(targetGoal) : null,
+          is_deleted: false,
+          created_at: new Date().toISOString()
+        };
+        parsedAccs.push(newAcc);
+        localStorage.setItem(`local_accounts_${user.id}`, JSON.stringify(parsedAccs));
+        await logAuditEvent("CREATE", "accounts", accId, null, mapAccountFromDb(newAcc));
+        await reloadData();
+        return;
+      }
 
       const { data, error } = await supabase.from("accounts").insert({
         id: accId,
@@ -586,7 +801,32 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const updateAccount = async (id: string, name: string, type: AccountType, initialBalance: number, targetGoal?: number) => {
     if (!user) return;
     return withSaveLock(async () => {
-      const oldVal = accounts.find(a => a.id === id);
+      const oldVal = accounts.find(a => a.id === id) || deletedAccounts.find(a => a.id === id);
+
+      if (!isSupabaseConfigured) {
+        const localAccsRaw = localStorage.getItem(`local_accounts_${user.id}`) || "[]";
+        let parsedAccs = JSON.parse(localAccsRaw);
+        parsedAccs = parsedAccs.map((a: any) => {
+          if (a.id === id) {
+            return {
+              ...a,
+              name,
+              type,
+              initial_balance: Number(initialBalance) || 0,
+              target_goal: targetGoal !== undefined ? targetGoal : a.target_goal
+            };
+          }
+          return a;
+        });
+        localStorage.setItem(`local_accounts_${user.id}`, JSON.stringify(parsedAccs));
+        const updated = parsedAccs.find((a: any) => a.id === id);
+        if (updated) {
+          await logAuditEvent("UPDATE", "accounts", id, oldVal, mapAccountFromDb(updated));
+        }
+        await reloadData();
+        return;
+      }
+
       const updateData: any = {
         name,
         type,
@@ -617,6 +857,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     return withSaveLock(async () => {
       const oldVal = accounts.find(a => a.id === id);
+
+      if (!isSupabaseConfigured) {
+        const localAccsRaw = localStorage.getItem(`local_accounts_${user.id}`) || "[]";
+        let parsedAccs = JSON.parse(localAccsRaw);
+        parsedAccs = parsedAccs.map((a: any) => {
+          if (a.id === id) {
+            return { ...a, is_deleted: true };
+          }
+          return a;
+        });
+        localStorage.setItem(`local_accounts_${user.id}`, JSON.stringify(parsedAccs));
+        await logAuditEvent("DELETE", "accounts", id, oldVal, { is_deleted: true });
+        await reloadData();
+        return;
+      }
+
       const { error } = await supabase
         .from("accounts")
         .update({ is_deleted: true })
@@ -644,6 +900,21 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const restoreAccount = async (id: string) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (!isSupabaseConfigured) {
+        const localAccsRaw = localStorage.getItem(`local_accounts_${user.id}`) || "[]";
+        let parsedAccs = JSON.parse(localAccsRaw);
+        parsedAccs = parsedAccs.map((a: any) => {
+          if (a.id === id) {
+            return { ...a, is_deleted: false };
+          }
+          return a;
+        });
+        localStorage.setItem(`local_accounts_${user.id}`, JSON.stringify(parsedAccs));
+        await logAuditEvent("RESTORE", "accounts", id, { is_deleted: true }, { is_deleted: false });
+        await reloadData();
+        return;
+      }
+
       const { error } = await supabase
         .from("accounts")
         .update({ is_deleted: false })
@@ -661,6 +932,25 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     return withSaveLock(async () => {
       const catId = "cat_" + Math.random().toString(36).substr(2, 9);
+
+      if (!isSupabaseConfigured) {
+        const localCatsRaw = localStorage.getItem(`local_categories_${user.id}`) || "[]";
+        const parsedCats = JSON.parse(localCatsRaw);
+        const newCat = {
+          id: catId,
+          user_id: user.id,
+          name,
+          type,
+          is_default: false,
+          is_deleted: false,
+          created_at: new Date().toISOString()
+        };
+        parsedCats.push(newCat);
+        localStorage.setItem(`local_categories_${user.id}`, JSON.stringify(parsedCats));
+        await logAuditEvent("CREATE", "categories", catId, null, mapCategoryFromDb(newCat));
+        await reloadData();
+        return;
+      }
 
       const { data, error } = await supabase.from("categories").insert({
         id: catId,
@@ -683,6 +973,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     return withSaveLock(async () => {
       const oldVal = dbCategories.find(c => c.id === id);
+
+      if (!isSupabaseConfigured) {
+        const localCatsRaw = localStorage.getItem(`local_categories_${user.id}`) || "[]";
+        let parsedCats = JSON.parse(localCatsRaw);
+        parsedCats = parsedCats.map((c: any) => {
+          if (c.id === id) {
+            return { ...c, is_deleted: true };
+          }
+          return c;
+        });
+        localStorage.setItem(`local_categories_${user.id}`, JSON.stringify(parsedCats));
+        await logAuditEvent("DELETE", "categories", id, oldVal, { is_deleted: true });
+        await reloadData();
+        return;
+      }
+
       const { error } = await supabase
         .from("categories")
         .update({ is_deleted: true })
@@ -712,6 +1018,36 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) throw new Error("No user session");
     return withSaveLock(async () => {
       const recId = "rec_" + Math.random().toString(36).substr(2, 9);
+
+      if (!isSupabaseConfigured) {
+        const localRecsRaw = localStorage.getItem(`local_reconciliations_${user.id}`) || "[]";
+        const parsedRecs = JSON.parse(localRecsRaw);
+        const newRec = {
+          id: recId,
+          user_id: user.id,
+          account_id: rec.accountId,
+          account_name: rec.accountName,
+          start_date: rec.startDate,
+          end_date: rec.endDate,
+          opening_balance: Number(rec.openingBalance) || 0,
+          closing_balance: Number(rec.closingBalance) || 0,
+          status: rec.status,
+          statement_file_name: rec.statementFileName || null,
+          statement_file_size: rec.statementFileSize || null,
+          statement_rows: rec.statementRows,
+          adjustments: rec.adjustments,
+          summary: rec.summary,
+          prepared_by: rec.preparedBy,
+          notes: rec.notes || null,
+          is_deleted: false,
+          created_date: new Date().toISOString()
+        };
+        parsedRecs.push(newRec);
+        localStorage.setItem(`local_reconciliations_${user.id}`, JSON.stringify(parsedRecs));
+        await logAuditEvent("CREATE", "bank_reconciliations", recId, null, mapReconciliationFromDb(newRec));
+        await reloadData();
+        return recId;
+      }
 
       const { data, error } = await supabase.from("bank_reconciliations").insert({
         id: recId,
@@ -746,6 +1082,42 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     return withSaveLock(async () => {
       const oldVal = reconciliations.find(r => r.id === id);
+
+      if (!isSupabaseConfigured) {
+        const localRecsRaw = localStorage.getItem(`local_reconciliations_${user.id}`) || "[]";
+        let parsedRecs = JSON.parse(localRecsRaw);
+        parsedRecs = parsedRecs.map((r: any) => {
+          if (r.id === id) {
+            return {
+              ...r,
+              account_id: rec.accountId !== undefined ? rec.accountId : r.account_id,
+              account_name: rec.accountName !== undefined ? rec.accountName : r.account_name,
+              start_date: rec.startDate !== undefined ? rec.startDate : r.start_date,
+              end_date: rec.endDate !== undefined ? rec.endDate : r.end_date,
+              opening_balance: rec.openingBalance !== undefined ? (Number(rec.openingBalance) || 0) : r.opening_balance,
+              closing_balance: rec.closingBalance !== undefined ? (Number(rec.closingBalance) || 0) : r.closing_balance,
+              status: rec.status !== undefined ? rec.status : r.status,
+              statement_file_name: rec.statementFileName !== undefined ? rec.statementFileName : r.statement_file_name,
+              statement_file_size: rec.statementFileSize !== undefined ? rec.statementFileSize : r.statement_file_size,
+              statement_rows: rec.statementRows !== undefined ? rec.statementRows : r.statement_rows,
+              adjustments: rec.adjustments !== undefined ? rec.adjustments : r.adjustments,
+              summary: rec.summary !== undefined ? rec.summary : r.summary,
+              prepared_by: rec.preparedBy !== undefined ? rec.preparedBy : r.prepared_by,
+              notes: rec.notes !== undefined ? rec.notes : r.notes,
+              completed_date: rec.completedDate !== undefined ? rec.completedDate : r.completed_date
+            };
+          }
+          return r;
+        });
+        localStorage.setItem(`local_reconciliations_${user.id}`, JSON.stringify(parsedRecs));
+        const updated = parsedRecs.find((r: any) => r.id === id);
+        if (updated) {
+          await logAuditEvent("UPDATE", "bank_reconciliations", id, oldVal, mapReconciliationFromDb(updated));
+        }
+        await reloadData();
+        return;
+      }
+
       const updatePayload: any = {};
       if (rec.accountId !== undefined) updatePayload.account_id = rec.accountId;
       if (rec.accountName !== undefined) updatePayload.account_name = rec.accountName;
@@ -784,6 +1156,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     return withSaveLock(async () => {
       const oldVal = reconciliations.find(r => r.id === id);
+
+      if (!isSupabaseConfigured) {
+        const localRecsRaw = localStorage.getItem(`local_reconciliations_${user.id}`) || "[]";
+        let parsedRecs = JSON.parse(localRecsRaw);
+        parsedRecs = parsedRecs.map((r: any) => {
+          if (r.id === id) {
+            return { ...r, is_deleted: true };
+          }
+          return r;
+        });
+        localStorage.setItem(`local_reconciliations_${user.id}`, JSON.stringify(parsedRecs));
+        await logAuditEvent("DELETE", "bank_reconciliations", id, oldVal, { is_deleted: true });
+        await reloadData();
+        return;
+      }
+
       const { error } = await supabase
         .from("bank_reconciliations")
         .update({ is_deleted: true })
@@ -816,6 +1204,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...categoryBudgets,
         [categoryName]: Number(amount) || 0
       };
+
+      if (!isSupabaseConfigured) {
+        localStorage.setItem(`local_budgets_${user.id}`, JSON.stringify(updatedBudgets));
+        setCategoryBudgets(updatedBudgets);
+        return;
+      }
 
       const { data, error } = await supabase.from("budgets").upsert({
         id: "all",

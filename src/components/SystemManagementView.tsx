@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useFinance } from "../context/FinanceContext";
+import { getAuthHeader } from "../supabase";
 import { 
   Database, 
   RotateCcw, 
@@ -65,18 +66,10 @@ export const SystemManagementView: React.FC = () => {
   }, [activeSubTab]);
 
   const getHeaders = async () => {
-    // Standard headers with Authorization if session is active
-    const saved = sessionStorage.getItem("preview-user");
-    let token = "";
-    if (saved) {
-      try {
-        const u = JSON.parse(saved);
-        token = u.token || "";
-      } catch (_) {}
-    }
+    const authHeader = await getAuthHeader();
     return {
       "Content-Type": "application/json",
-      ...(token ? { "Authorization": `Bearer ${token}` } : {})
+      ...authHeader
     };
   };
 

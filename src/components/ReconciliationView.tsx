@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useFinance } from "../context/FinanceContext";
+import { getAuthHeader } from "../supabase";
 import {
   BankStatementRow,
   ReconciliationAdjustment,
@@ -364,9 +365,13 @@ export const ReconciliationView: React.FC = () => {
         const base64Data = e.target?.result?.toString().split(",")[1];
         if (!base64Data) throw new Error("Could not read file base64 data.");
 
+        const authHeader = await getAuthHeader();
         const response = await fetch("/api/reconcile-extract", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeader,
+          },
           body: JSON.stringify({
             fileData: base64Data,
             mimeType: mime || "application/pdf",

@@ -15,7 +15,8 @@ import {
   Sparkles, 
   ShieldCheck, 
   Menu, 
-  X 
+  X,
+  Sliders
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -33,6 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     { id: "accounts", label: "Accounts", icon: CreditCard },
     { id: "debt", label: "Debt Management", icon: Coins },
     { id: "categories", label: "Categories", icon: Tag },
+    { id: "budgets", label: "Budgets", icon: Sliders },
     { id: "accounting", label: "Accounting Books", icon: BookOpen },
     { id: "reconciliation", label: "Bank Reconciliation", icon: CheckSquare },
     { id: "tax", label: "Tax Calculation", icon: Calculator },

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useFinance } from "../context/FinanceContext";
 import { useTax } from "../context/TaxContext";
-import { supabase, isSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, getAuthHeader } from "../supabase";
 import {
   Sparkles,
   TrendingUp,
@@ -381,14 +381,13 @@ export const AIAdviserView: React.FC<AIAdviserViewProps> = ({ onNavigate }) => {
       }));
 
       // Retrieve Supabase Access Token (JWT)
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+      const authHeader = await getAuthHeader();
 
       const response = await fetch("/api/advisor/analyze", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          ...authHeader
         },
         body: JSON.stringify({
           transactions: minTransactions,
@@ -582,15 +581,14 @@ export const AIAdviserView: React.FC<AIAdviserViewProps> = ({ onNavigate }) => {
       }));
 
       // Retrieve token
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+      const authHeader = await getAuthHeader();
 
       // 2. Query server side
       const chatResponse = await fetch("/api/advisor/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          ...authHeader
         },
         body: JSON.stringify({
           message: rawText,

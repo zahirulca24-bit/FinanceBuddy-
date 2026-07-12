@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import { useFinance } from "../context/FinanceContext";
+import { getAuthHeader } from "../supabase";
 import {
   Upload,
   FileText,
@@ -154,10 +155,12 @@ export const AddTransactionView: React.FC = () => {
         const base64Data = result.split(",")[1];
         const mimeType = file.type || "application/octet-stream";
 
+        const authHeader = await getAuthHeader();
         const response = await fetch("/api/extract", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...authHeader,
           },
           body: JSON.stringify({
             fileData: base64Data,

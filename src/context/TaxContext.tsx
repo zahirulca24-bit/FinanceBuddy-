@@ -123,6 +123,10 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [taxCalculations, setTaxCalculations] = useState<TaxCalculationRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const checkLocalStorageMode = (): boolean => {
+    return !isSupabaseConfigured || user?.id === "00000000-0000-0000-0000-000000000000" || user?.role === "preview-admin";
+  };
+
   const isSavingRef = useRef(false);
 
   const withSaveLock = async <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -135,12 +139,99 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const loadTaxDataLocal = (userId: string) => {
+    try {
+      // 1. Load Tax Profiles
+      let localProfsRaw = localStorage.getItem(`tax_profiles_${userId}`);
+      if (!localProfsRaw) {
+        const initialProfiles = [
+          {
+            id: "prof_demo",
+            user_id: userId,
+            taxpayer_name: "Hossain Ahmed (Demo)",
+            tin: "1234-5678-9012",
+            tax_year: "2025-2026",
+            assessment_year: "2026-2027",
+            residency_status: "Resident",
+            gender_category: "General (Male)",
+            date_of_birth: "1988-06-15",
+            employment_status: "Salaried Employee",
+            main_source_of_income: "Employment Income",
+            tax_jurisdiction: "Dhaka North City Corporation",
+            notes: "Demo taxpayer profile",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+        localStorage.setItem(`tax_profiles_${userId}`, JSON.stringify(initialProfiles));
+        localProfsRaw = JSON.stringify(initialProfiles);
+      }
+      const parsedProfs = JSON.parse(localProfsRaw);
+      setTaxProfiles(parsedProfs.map(mapTaxProfileFromDb));
+
+      // 2. Load Tax Configurations
+      let localConfigsRaw = localStorage.getItem(`tax_configurations_${userId}`);
+      if (!localConfigsRaw) {
+        const initialConfigs = [
+          {
+            id: "cfg_default",
+            user_id: userId,
+            tax_year: "2025-2026",
+            is_active: true,
+            tax_free_threshold: 350000,
+            special_thresholds: { women: 400000, disabled: 475000 },
+            minimum_tax: { dhaka: 5000, other_city: 4000, non_city: 3000 },
+            investment_rebate_rate: 15,
+            rebate_percentage_of_income: 3,
+            max_rebate_limit: 1000000,
+            surcharge_rates: [
+              { threshold: 4000000, rate: 10 },
+              { threshold: 10000000, rate: 20 },
+              { threshold: 20000000, rate: 30 }
+            ],
+            rounding_rule: "Nearest 10",
+            slabs: DEFAULT_SLABS_25_26,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+        localStorage.setItem(`tax_configurations_${userId}`, JSON.stringify(initialConfigs));
+        localConfigsRaw = JSON.stringify(initialConfigs);
+      }
+      const parsedConfigs = JSON.parse(localConfigsRaw);
+      const mappedConfigs = parsedConfigs.map(mapTaxConfigFromDb);
+      mappedConfigs.sort((a, b) => b.taxYear.localeCompare(a.taxYear));
+      setTaxConfigurations(mappedConfigs);
+
+      // 3. Load Tax Calculations
+      let localCalcsRaw = localStorage.getItem(`tax_calculations_${userId}`) || "[]";
+      const parsedCalcs = JSON.parse(localCalcsRaw);
+      const mappedCalcs = parsedCalcs.map(mapTaxCalculationFromDb);
+      mappedCalcs.sort((a, b) => {
+        const yearCompare = b.taxYear.localeCompare(a.taxYear);
+        if (yearCompare !== 0) return yearCompare;
+        return (b.version || 0) - (a.version || 0);
+      });
+      setTaxCalculations(mappedCalcs);
+
+    } catch (err) {
+      console.error("Error loading mock tax data from localStorage:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadTaxData = async () => {
     if (!user) {
       setTaxProfiles([]);
       setTaxConfigurations([]);
       setTaxCalculations([]);
       setLoading(false);
+      return;
+    }
+
+    if (checkLocalStorageMode()) {
+      loadTaxDataLocal(user.id);
       return;
     }
 
@@ -181,7 +272,8 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTaxCalculations(mappedCalcs);
 
     } catch (err) {
-      console.error("Error loading Tax context data:", err);
+      console.warn("Error loading Tax context data from Supabase, falling back to localStorage:", err);
+      loadTaxDataLocal(user.id);
     } finally {
       setLoading(false);
     }
@@ -196,6 +288,32 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) throw new Error("Unauthenticated user");
     return withSaveLock(async () => {
       const pId = "prof_" + Math.random().toString(36).substr(2, 9);
+
+      if (checkLocalStorageMode()) {
+        const localProfsRaw = localStorage.getItem(`tax_profiles_${user.id}`) || "[]";
+        const parsedProfs = JSON.parse(localProfsRaw);
+        const newProfile = {
+          id: pId,
+          user_id: user.id,
+          taxpayer_name: profile.taxpayerName,
+          tin: profile.tin,
+          tax_year: profile.taxYear,
+          assessment_year: profile.assessmentYear,
+          residency_status: profile.residencyStatus,
+          gender_category: profile.genderCategory,
+          date_of_birth: profile.dateOfBirth,
+          employment_status: profile.employmentStatus,
+          main_source_of_income: profile.mainSourceOfIncome,
+          tax_jurisdiction: profile.taxJurisdiction,
+          notes: profile.notes || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        parsedProfs.push(newProfile);
+        localStorage.setItem(`tax_profiles_${user.id}`, JSON.stringify(parsedProfs));
+        await loadTaxData();
+        return pId;
+      }
 
       const { data, error } = await supabase.from("tax_profiles").insert({
         id: pId,
@@ -226,6 +344,32 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateTaxProfile = async (id: string, profile: Partial<TaxProfile>) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (checkLocalStorageMode()) {
+        const localProfsRaw = localStorage.getItem(`tax_profiles_${user.id}`) || "[]";
+        const parsedProfs = JSON.parse(localProfsRaw);
+        const updated = parsedProfs.map((p: any) => {
+          if (p.id === id) {
+            const updatedProfile = { ...p, updated_at: new Date().toISOString() };
+            if (profile.taxpayerName !== undefined) updatedProfile.taxpayer_name = profile.taxpayerName;
+            if (profile.tin !== undefined) updatedProfile.tin = profile.tin;
+            if (profile.taxYear !== undefined) updatedProfile.tax_year = profile.taxYear;
+            if (profile.assessmentYear !== undefined) updatedProfile.assessment_year = profile.assessmentYear;
+            if (profile.residencyStatus !== undefined) updatedProfile.residency_status = profile.residencyStatus;
+            if (profile.genderCategory !== undefined) updatedProfile.gender_category = profile.genderCategory;
+            if (profile.dateOfBirth !== undefined) updatedProfile.date_of_birth = profile.dateOfBirth;
+            if (profile.employmentStatus !== undefined) updatedProfile.employment_status = profile.employmentStatus;
+            if (profile.mainSourceOfIncome !== undefined) updatedProfile.main_source_of_income = profile.mainSourceOfIncome;
+            if (profile.taxJurisdiction !== undefined) updatedProfile.tax_jurisdiction = profile.taxJurisdiction;
+            if (profile.notes !== undefined) updatedProfile.notes = profile.notes;
+            return updatedProfile;
+          }
+          return p;
+        });
+        localStorage.setItem(`tax_profiles_${user.id}`, JSON.stringify(updated));
+        await loadTaxData();
+        return;
+      }
+
       const updatePayload: any = {
         updated_at: new Date().toISOString()
       };
@@ -259,6 +403,15 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTaxProfile = async (id: string) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (checkLocalStorageMode()) {
+        const localProfsRaw = localStorage.getItem(`tax_profiles_${user.id}`) || "[]";
+        const parsedProfs = JSON.parse(localProfsRaw);
+        const filtered = parsedProfs.filter((p: any) => p.id !== id);
+        localStorage.setItem(`tax_profiles_${user.id}`, JSON.stringify(filtered));
+        await loadTaxData();
+        return;
+      }
+
       const { error } = await supabase
         .from("tax_profiles")
         .delete()
@@ -275,6 +428,40 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) throw new Error("Unauthenticated user");
     return withSaveLock(async () => {
       const cId = "cfg_" + Math.random().toString(36).substr(2, 9);
+
+      if (checkLocalStorageMode()) {
+        const localConfigsRaw = localStorage.getItem(`tax_configurations_${user.id}`) || "[]";
+        let parsedConfigs = JSON.parse(localConfigsRaw);
+        if (config.isActive) {
+          parsedConfigs = parsedConfigs.map((c: any) => {
+            if (c.tax_year === config.taxYear) {
+              return { ...c, is_active: false, updated_at: new Date().toISOString() };
+            }
+            return c;
+          });
+        }
+        const newConfig = {
+          id: cId,
+          user_id: user.id,
+          tax_year: config.taxYear,
+          is_active: !!config.isActive,
+          tax_free_threshold: Number(config.taxFreeThreshold) || 0,
+          special_thresholds: config.specialThresholds,
+          minimum_tax: config.minimumTax,
+          investment_rebate_rate: Number(config.investmentRebateRate) || 0,
+          rebate_percentage_of_income: Number(config.rebatePercentageOfIncome) || 0,
+          max_rebate_limit: Number(config.maxRebateLimit) || 0,
+          surcharge_rates: config.surchargeRates,
+          rounding_rule: config.roundingRule,
+          slabs: config.slabs,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        parsedConfigs.push(newConfig);
+        localStorage.setItem(`tax_configurations_${user.id}`, JSON.stringify(parsedConfigs));
+        await loadTaxData();
+        return cId;
+      }
 
       // Deactivate others for same taxYear
       if (config.isActive) {
@@ -317,7 +504,7 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateTaxConfiguration = async (id: string, config: Partial<TaxConfiguration>) => {
     if (!user) return;
     return withSaveLock(async () => {
-      if (user.id === 'preview-admin') {
+      if (checkLocalStorageMode()) {
         let currentConfigs = [...taxConfigurations];
         if (config.isActive) {
           const targetYear = config.taxYear || currentConfigs.find(c => c.id === id)?.taxYear;
@@ -340,8 +527,27 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           return c;
         });
-        localStorage.setItem(`tax_configurations_${user.id}`, JSON.stringify(updated));
-        setTaxConfigurations(updated);
+        
+        const dbConfigs = updated.map(u => ({
+          id: u.id,
+          user_id: u.userId,
+          tax_year: u.taxYear,
+          is_active: u.isActive,
+          tax_free_threshold: u.taxFreeThreshold,
+          special_thresholds: u.specialThresholds,
+          minimum_tax: u.minimumTax,
+          investment_rebate_rate: u.investmentRebateRate,
+          rebate_percentage_of_income: u.rebatePercentageOfIncome,
+          max_rebate_limit: u.maxRebateLimit,
+          surcharge_rates: u.surchargeRates,
+          rounding_rule: u.roundingRule,
+          slabs: u.slabs,
+          created_at: u.createdAt,
+          updated_at: u.updatedAt
+        }));
+
+        localStorage.setItem(`tax_configurations_${user.id}`, JSON.stringify(dbConfigs));
+        await loadTaxData();
         return;
       }
 
@@ -392,6 +598,15 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTaxConfiguration = async (id: string) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (checkLocalStorageMode()) {
+        const localConfigsRaw = localStorage.getItem(`tax_configurations_${user.id}`) || "[]";
+        const parsedConfigs = JSON.parse(localConfigsRaw);
+        const filtered = parsedConfigs.filter((c: any) => c.id !== id);
+        localStorage.setItem(`tax_configurations_${user.id}`, JSON.stringify(filtered));
+        await loadTaxData();
+        return;
+      }
+
       const { error } = await supabase
         .from("tax_configurations")
         .delete()
@@ -406,6 +621,20 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const activateTaxConfiguration = async (id: string, taxYear: string) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (checkLocalStorageMode()) {
+        const localConfigsRaw = localStorage.getItem(`tax_configurations_${user.id}`) || "[]";
+        const parsedConfigs = JSON.parse(localConfigsRaw);
+        const updated = parsedConfigs.map((c: any) => {
+          if (c.tax_year === taxYear) {
+            return { ...c, is_active: c.id === id, updated_at: new Date().toISOString() };
+          }
+          return c;
+        });
+        localStorage.setItem(`tax_configurations_${user.id}`, JSON.stringify(updated));
+        await loadTaxData();
+        return;
+      }
+
       const targetConfigs = taxConfigurations.filter(c => c.taxYear === taxYear);
       for (const c of targetConfigs) {
         await supabase
@@ -426,6 +655,38 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) throw new Error("Unauthenticated user");
     return withSaveLock(async () => {
       const calcId = "calc_" + Math.random().toString(36).substr(2, 9);
+
+      if (checkLocalStorageMode()) {
+        const localCalcsRaw = localStorage.getItem(`tax_calculations_${user.id}`) || "[]";
+        const parsedCalcs = JSON.parse(localCalcsRaw);
+        const newCalc = {
+          id: calcId,
+          user_id: user.id,
+          tax_year: record.taxYear,
+          assessment_year: record.assessmentYear,
+          profile_id: record.profileId,
+          profile: record.profile,
+          status: record.status,
+          version: Number(record.version) || 1,
+          income_items: record.incomeItems,
+          salary_details: record.salaryDetails,
+          deductions: record.deductions,
+          exempt_incomes: record.exemptIncomes,
+          tax_paid_items: record.taxPaidItems,
+          tax_config_used: record.taxConfigUsed,
+          summary: record.summary,
+          notes: record.notes || null,
+          prepared_by: record.preparedBy,
+          preparation_date: record.preparationDate,
+          assumptions: record.assumptions || null,
+          audit_trail: record.auditTrail,
+          created_date: new Date().toISOString()
+        };
+        parsedCalcs.push(newCalc);
+        localStorage.setItem(`tax_calculations_${user.id}`, JSON.stringify(parsedCalcs));
+        await loadTaxData();
+        return calcId;
+      }
 
       const { data, error } = await supabase.from("tax_calculations").insert({
         id: calcId,
@@ -462,6 +723,40 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateTaxCalculation = async (id: string, record: Partial<TaxCalculationRecord>) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (checkLocalStorageMode()) {
+        const localCalcsRaw = localStorage.getItem(`tax_calculations_${user.id}`) || "[]";
+        const parsedCalcs = JSON.parse(localCalcsRaw);
+        const updated = parsedCalcs.map((c: any) => {
+          if (c.id === id) {
+            const updatedCalc = { ...c, updated_at: new Date().toISOString() };
+            if (record.taxYear !== undefined) updatedCalc.tax_year = record.taxYear;
+            if (record.assessmentYear !== undefined) updatedCalc.assessment_year = record.assessmentYear;
+            if (record.profileId !== undefined) updatedCalc.profile_id = record.profileId;
+            if (record.profile !== undefined) updatedCalc.profile = record.profile;
+            if (record.status !== undefined) updatedCalc.status = record.status;
+            if (record.version !== undefined) updatedCalc.version = Number(record.version) || 1;
+            if (record.incomeItems !== undefined) updatedCalc.income_items = record.incomeItems;
+            if (record.salaryDetails !== undefined) updatedCalc.salary_details = record.salaryDetails;
+            if (record.deductions !== undefined) updatedCalc.deductions = record.deductions;
+            if (record.exemptIncomes !== undefined) updatedCalc.exempt_incomes = record.exemptIncomes;
+            if (record.taxPaidItems !== undefined) updatedCalc.tax_paid_items = record.taxPaidItems;
+            if (record.taxConfigUsed !== undefined) updatedCalc.tax_config_used = record.taxConfigUsed;
+            if (record.summary !== undefined) updatedCalc.summary = record.summary;
+            if (record.notes !== undefined) updatedCalc.notes = record.notes;
+            if (record.preparedBy !== undefined) updatedCalc.prepared_by = record.preparedBy;
+            if (record.preparationDate !== undefined) updatedCalc.preparation_date = record.preparationDate;
+            if (record.assumptions !== undefined) updatedCalc.assumptions = record.assumptions;
+            if (record.auditTrail !== undefined) updatedCalc.audit_trail = record.auditTrail;
+            if (record.finalizedDate !== undefined) updatedCalc.finalized_date = record.finalizedDate;
+            return updatedCalc;
+          }
+          return c;
+        });
+        localStorage.setItem(`tax_calculations_${user.id}`, JSON.stringify(updated));
+        await loadTaxData();
+        return;
+      }
+
       const updatePayload: any = {
         updated_at: new Date().toISOString()
       };
@@ -503,6 +798,15 @@ export const TaxProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTaxCalculation = async (id: string) => {
     if (!user) return;
     return withSaveLock(async () => {
+      if (checkLocalStorageMode()) {
+        const localCalcsRaw = localStorage.getItem(`tax_calculations_${user.id}`) || "[]";
+        const parsedCalcs = JSON.parse(localCalcsRaw);
+        const filtered = parsedCalcs.filter((c: any) => c.id !== id);
+        localStorage.setItem(`tax_calculations_${user.id}`, JSON.stringify(filtered));
+        await loadTaxData();
+        return;
+      }
+
       const { error } = await supabase
         .from("tax_calculations")
         .delete()

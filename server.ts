@@ -4,15 +4,95 @@ import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import { execFile } from "child_process";
 
 dotenv.config();
 
-const PORT = 3000;
+const getPort = (): number => {
+  const portStr = process.env.PORT;
+  if (!portStr) {
+    return 3000;
+  }
+  const port = parseInt(portStr, 10);
+  if (isNaN(port) || port <= 0 || port.toString() !== portStr.trim()) {
+    console.error(`CRITICAL: Port value "${portStr}" is invalid. PORT must be a positive integer.`);
+    process.exit(1);
+  }
+  return port;
+};
+
+const PORT = getPort();
+
+const validateProdEnv = () => {
+  if (process.env.NODE_ENV === "production") {
+    const url = process.env.VITE_SUPABASE_URL;
+    const key = process.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!url || !key) {
+      console.error("CRITICAL: Missing required Supabase configuration in production environment.");
+      console.error("Ensure that VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in the environment.");
+      process.exit(1);
+    }
+
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        throw new Error("Invalid protocol");
+      }
+    } catch (e) {
+      console.error(`CRITICAL: VITE_SUPABASE_URL "${url}" is not a valid URL (http/https).`);
+      process.exit(1);
+    }
+  }
+};
+
+validateProdEnv();
+
 const app = express();
 
-// Increase JSON body limits for base64 file uploads (receipt screenshots, PDFs)
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+// Apply security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: false,
+  })
+);
+
+// Route-specific parser limits to protect from large payload attacks on other routes
+const jsonParser = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const isUpload = req.path === "/api/extract" || req.path === "/api/reconcile-extract";
+  const limit = isUpload ? "15mb" : "2mb";
+  express.json({ limit })(req, res, next);
+};
+
+const urlencodedParser = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const isUpload = req.path === "/api/extract" || req.path === "/api/reconcile-extract";
+  const limit = isUpload ? "15mb" : "2mb";
+  express.urlencoded({ limit, extended: true })(req, res, next);
+};
+
+app.use(jsonParser);
+app.use(urlencodedParser);
+
+// Rate limiting configurations
+const aiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many requests to AI services. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const adminLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 15,
+  message: { error: "Too many administrative requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Shared server-side Gemini client
 const ai = new GoogleGenAI({
@@ -35,9 +115,25 @@ const supabaseServer = createClient(
 
 // Middleware to secure endpoints and validate Supabase Access Tokens (JWT)
 const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  // If Supabase keys are not set up, allow the request so developers can view the UI instructions first
+  const isProduction = process.env.NODE_ENV === "production";
+
   if (!supabaseUrl || !supabaseAnonKey) {
-    return next();
+    if (isProduction) {
+      return res.status(503).json({ error: "Service Unavailable: Authentication service misconfigured." });
+    }
+    const isPreviewEnabled = process.env.VITE_ENABLE_PREVIEW_MODE === "true";
+    if (isPreviewEnabled) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader === "Bearer preview-token") {
+        (req as any).user = {
+          id: "00000000-0000-0000-0000-000000000000",
+          email: "admin@preview.local",
+          app_metadata: { role: "admin" }
+        };
+        return next();
+      }
+    }
+    return res.status(401).json({ error: "Authentication service is not configured." });
   }
 
   const authHeader = req.headers.authorization;
@@ -46,6 +142,16 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
   }
 
   const token = authHeader.replace("Bearer ", "");
+
+  if (!isProduction && process.env.VITE_ENABLE_PREVIEW_MODE === "true" && token === "preview-token") {
+    (req as any).user = {
+      id: "00000000-0000-0000-0000-000000000000",
+      email: "admin@preview.local",
+      app_metadata: { role: "admin" }
+    };
+    return next();
+  }
+
   try {
     const { data: { user }, error } = await supabaseServer.auth.getUser(token);
     if (error || !user) {
@@ -58,18 +164,68 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
   }
 };
 
+// Middleware to authorize administrators
+const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as any).user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: User session not found." });
+  }
+
+  const isSupabaseAdmin = user.app_metadata?.role === "admin";
+
+  const adminEmailsString = process.env.ADMIN_EMAILS || "";
+  const adminEmails = adminEmailsString.split(",").map(email => email.trim().toLowerCase()).filter(Boolean);
+  const isEmailAdmin = user.email ? adminEmails.includes(user.email.toLowerCase()) : false;
+
+  if (isSupabaseAdmin || isEmailAdmin) {
+    return next();
+  }
+
+  return res.status(403).json({ error: "Forbidden: Administrator privileges required." });
+};
+
 // API route: Health Check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// API route: Readiness Check
+app.get("/api/ready", (req, res) => {
+  const hasSupabaseConfig = !!(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY);
+  const hasGeminiConfig = !!process.env.GEMINI_API_KEY;
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const isReady = isProduction ? (hasSupabaseConfig && hasGeminiConfig) : true;
+
+  res.status(isReady ? 200 : 503).json({
+    status: isReady ? "ready" : "not_ready",
+    checks: {
+      supabaseConfigured: hasSupabaseConfig,
+      geminiConfigured: hasGeminiConfig,
+    }
+  });
+});
+
 // API route: AI Transaction Extraction (Secured)
-app.post("/api/extract", requireAuth, async (req, res) => {
+app.post("/api/extract", requireAuth, aiLimiter, async (req, res) => {
   try {
     const { fileData, mimeType, fileName } = req.body;
 
+    const supportedMimeTypes = [
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/webp",
+      "image/gif",
+    ];
+
     if (!fileData || !mimeType) {
-      return res.status(400).json({ error: "Missing fileData or mimeType" });
+      return res.status(400).json({ error: "Missing required fields: fileData and mimeType are required." });
+    }
+
+    if (!supportedMimeTypes.includes(mimeType.toLowerCase())) {
+      return res.status(400).json({ error: `Unsupported file type: "${mimeType}". Supported types are PDF and images (PNG, JPEG, WebP, GIF).` });
     }
 
     if (!process.env.GEMINI_API_KEY) {
@@ -162,12 +318,25 @@ app.post("/api/extract", requireAuth, async (req, res) => {
 });
 
 // API route: Bank Statement Extraction (PDF & Images) (Secured)
-app.post("/api/reconcile-extract", requireAuth, async (req, res) => {
+app.post("/api/reconcile-extract", requireAuth, aiLimiter, async (req, res) => {
   try {
     const { fileData, mimeType, fileName } = req.body;
 
+    const supportedMimeTypes = [
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/webp",
+      "image/gif",
+    ];
+
     if (!fileData || !mimeType) {
-      return res.status(400).json({ error: "Missing fileData or mimeType" });
+      return res.status(400).json({ error: "Missing required fields: fileData and mimeType are required." });
+    }
+
+    if (!supportedMimeTypes.includes(mimeType.toLowerCase())) {
+      return res.status(400).json({ error: `Unsupported file type: "${mimeType}". Supported types are PDF and images (PNG, JPEG, WebP, GIF).` });
     }
 
     if (!process.env.GEMINI_API_KEY) {
@@ -273,7 +442,7 @@ app.post("/api/reconcile-extract", requireAuth, async (req, res) => {
 });
 
 // API route: AI Adviser Analysis (Secured)
-app.post("/api/advisor/analyze", requireAuth, async (req, res) => {
+app.post("/api/advisor/analyze", requireAuth, aiLimiter, async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({
@@ -405,7 +574,7 @@ app.post("/api/advisor/analyze", requireAuth, async (req, res) => {
 });
 
 // API route: AI Adviser Chat (Secured)
-app.post("/api/advisor/chat", requireAuth, async (req, res) => {
+app.post("/api/advisor/chat", requireAuth, aiLimiter, async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({
@@ -467,7 +636,6 @@ app.post("/api/advisor/chat", requireAuth, async (req, res) => {
 // ====================================================================
 
 import fs from "fs";
-import { exec } from "child_process";
 
 const BACKUPS_DIR = path.join(process.cwd(), "backups");
 if (!fs.existsSync(BACKUPS_DIR)) {
@@ -505,8 +673,8 @@ app.post("/api/audit", requireAuth, async (req, res) => {
   }
 });
 
-// 2. GET /api/audit - Get all audit logs
-app.get("/api/audit", requireAuth, async (req, res) => {
+// 2. GET /api/audit - Get all audit logs (Admin-Only, Rate-Limited)
+app.get("/api/audit", requireAuth, requireAdmin, adminLimiter, async (req, res) => {
   try {
     const auditFile = path.join(BACKUPS_DIR, "audit_logs.jsonl");
     if (!fs.existsSync(auditFile)) {
@@ -536,8 +704,8 @@ app.get("/api/audit", requireAuth, async (req, res) => {
   }
 });
 
-// 3. GET /api/backups - List all available backups
-app.get("/api/backups", requireAuth, async (req, res) => {
+// 3. GET /api/backups - List all available backups (Admin-Only, Rate-Limited)
+app.get("/api/backups", requireAuth, requireAdmin, adminLimiter, async (req, res) => {
   try {
     if (!fs.existsSync(BACKUPS_DIR)) {
       return res.json([]);
@@ -566,25 +734,25 @@ app.get("/api/backups", requireAuth, async (req, res) => {
   }
 });
 
-// 4. POST /api/backup - Trigger manual backup
-app.post("/api/backup", requireAuth, async (req, res) => {
+// 4. POST /api/backup - Trigger manual backup (Admin-Only, Rate-Limited, Safe Exec)
+app.post("/api/backup", requireAuth, requireAdmin, adminLimiter, async (req, res) => {
   try {
-    exec("python3 backup_restore.py backup", (error, stdout, stderr) => {
+    execFile("python3", ["backup_restore.py", "backup"], (error, stdout, stderr) => {
       if (error) {
         console.error("Backup failed:", stderr || error.message);
-        return res.status(500).json({ error: "Backup execution failed: " + (stderr || error.message) });
+        return res.status(500).json({ error: "Database backup execution failed. Check server logs." });
       }
       console.log("Backup stdout:", stdout);
       return res.json({ status: "success", message: "Database backup completed successfully." });
     });
   } catch (error: any) {
     console.error("Manual backup error:", error);
-    return res.status(500).json({ error: "Failed to trigger backup: " + error.message });
+    return res.status(500).json({ error: "Failed to trigger backup. Check server logs." });
   }
 });
 
-// 5. POST /api/restore - Trigger database restore
-app.post("/api/restore", requireAuth, async (req, res) => {
+// 5. POST /api/restore - Trigger database restore (Admin-Only, Rate-Limited, Safe Exec)
+app.post("/api/restore", requireAuth, requireAdmin, adminLimiter, async (req, res) => {
   try {
     const { filename } = req.body;
     if (!filename) {
@@ -594,34 +762,34 @@ app.post("/api/restore", requireAuth, async (req, res) => {
     // Sanitize filename to prevent directory traversal
     const safeFilename = path.basename(filename);
     
-    exec(`python3 backup_restore.py restore "${safeFilename}"`, (error, stdout, stderr) => {
+    execFile("python3", ["backup_restore.py", "restore", safeFilename], (error, stdout, stderr) => {
       if (error) {
         console.error("Restore failed:", stderr || error.message);
-        return res.status(500).json({ error: "Database restore failed: " + (stderr || error.message) });
+        return res.status(500).json({ error: "Database restore execution failed. Check server logs." });
       }
       console.log("Restore stdout:", stdout);
       return res.json({ status: "success", message: "Database restore completed successfully." });
     });
   } catch (error: any) {
     console.error("Restore error:", error);
-    return res.status(500).json({ error: "Failed to trigger restore: " + error.message });
+    return res.status(500).json({ error: "Failed to trigger restore. Check server logs." });
   }
 });
 
-// 6. POST /api/backup/auto - Trigger automatic backup check
-app.post("/api/backup/auto", requireAuth, async (req, res) => {
+// 6. POST /api/backup/auto - Trigger automatic backup check (Admin-Only, Rate-Limited, Safe Exec)
+app.post("/api/backup/auto", requireAuth, requireAdmin, adminLimiter, async (req, res) => {
   try {
-    exec("python3 backup_restore.py auto_backup", (error, stdout, stderr) => {
+    execFile("python3", ["backup_restore.py", "auto_backup"], (error, stdout, stderr) => {
       if (error) {
         console.error("Auto backup failed:", stderr || error.message);
-        return res.status(500).json({ error: "Automatic backup failed: " + (stderr || error.message) });
+        return res.status(500).json({ error: "Automatic backup execution failed. Check server logs." });
       }
       console.log("Auto backup stdout:", stdout);
       return res.json({ status: "success", message: "Automatic backup completed successfully." });
     });
   } catch (error: any) {
     console.error("Auto backup error:", error);
-    return res.status(500).json({ error: "Failed to trigger automatic backup: " + error.message });
+    return res.status(500).json({ error: "Failed to trigger automatic backup. Check server logs." });
   }
 });
 
@@ -648,6 +816,10 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  console.error("Failed to start server:", err);
-});
+if (process.env.NODE_ENV !== "test") {
+  main().catch((err) => {
+    console.error("Failed to start server:", err);
+  });
+}
+
+export { app };
