@@ -7,16 +7,14 @@ import { createClient } from "@supabase/supabase-js";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { execFile } from "child_process";
+import { getPortValue, validateProdEnvValue } from "./src/utils/env";
 
 dotenv.config();
 
 const getPort = (): number => {
   const portStr = process.env.PORT;
-  if (!portStr) {
-    return 3000;
-  }
-  const port = parseInt(portStr, 10);
-  if (isNaN(port) || port <= 0 || port.toString() !== portStr.trim()) {
+  const port = getPortValue(portStr);
+  if (port === undefined) {
     console.error(`CRITICAL: Port value "${portStr}" is invalid. PORT must be a positive integer.`);
     process.exit(1);
   }
@@ -30,19 +28,9 @@ const validateProdEnv = () => {
     const url = process.env.VITE_SUPABASE_URL;
     const key = process.env.VITE_SUPABASE_ANON_KEY;
 
-    if (!url || !key) {
-      console.error("CRITICAL: Missing required Supabase configuration in production environment.");
-      console.error("Ensure that VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in the environment.");
-      process.exit(1);
-    }
-
-    try {
-      const parsedUrl = new URL(url);
-      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-        throw new Error("Invalid protocol");
-      }
-    } catch (e) {
-      console.error(`CRITICAL: VITE_SUPABASE_URL "${url}" is not a valid URL (http/https).`);
+    if (!validateProdEnvValue(url, key)) {
+      console.error("CRITICAL: Missing or invalid Supabase configuration in production environment.");
+      console.error("Ensure that VITE_SUPABASE_URL (valid http/https URL) and VITE_SUPABASE_ANON_KEY are set.");
       process.exit(1);
     }
   }
@@ -776,8 +764,11 @@ app.post("/api/restore", requireAuth, requireAdmin, adminLimiter, async (req, re
       return res.status(400).json({ error: "Missing filename for restore." });
     }
     
-    // Sanitize filename to prevent directory traversal
-    const safeFilename = path.basename(filename);
+    // Reject restore filenames when directory traversal is attempted
+    if (filename !== path.basename(filename)) {
+      return res.status(400).json({ error: "Unsafe filename. Directory traversal characters or paths are not allowed." });
+    }
+    const safeFilename = filename;
     
     execFile("python3", ["backup_restore.py", "restore", safeFilename], (error, stdout, stderr) => {
       if (error) {

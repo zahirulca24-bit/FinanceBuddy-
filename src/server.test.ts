@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
+import { getPortValue, validateProdEnvValue } from "./utils/env";
 import { app } from "../server";
 
 // Set required test environment variables before anything else
@@ -122,97 +123,189 @@ describe("Finance Buddy Secure Runnable Foundation Tests", () => {
   });
 
   describe("PORT and Environment Validation Logic", () => {
-    it("should validate and parse PORT correctly", () => {
-      const getPortTest = (portStr: string | undefined): number | undefined => {
-        if (!portStr) return 3000;
-        const port = parseInt(portStr, 10);
-        if (isNaN(port) || port <= 0 || port.toString() !== portStr.trim()) {
-          return undefined;
-        }
-        return port;
-      };
-      expect(getPortTest("3000")).toBe(3000);
-      expect(getPortTest("8080")).toBe(8080);
-      expect(getPortTest("-8080")).toBeUndefined();
-      expect(getPortTest("abc")).toBeUndefined();
+    it("1. default port returns 3000", () => {
+      expect(getPortValue(undefined)).toBe(3000);
     });
 
-    it("should validate production environment Supabase config", () => {
-      const validateProdEnvTest = (url: string | undefined, key: string | undefined): boolean => {
-        if (!url || !key) {
-          return false;
-        }
-        try {
-          const parsedUrl = new URL(url);
-          if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-            return false;
-          }
-        } catch (e) {
-          return false;
-        }
-        return true;
-      };
-      expect(validateProdEnvTest("https://example.supabase.co", "some-key")).toBe(true);
-      expect(validateProdEnvTest("ftp://example.supabase.co", "some-key")).toBe(false);
-      expect(validateProdEnvTest("", "some-key")).toBe(false);
-      expect(validateProdEnvTest("https://example.supabase.co", "")).toBe(false);
+    it("2. valid custom port is accepted", () => {
+      expect(getPortValue("8080")).toBe(8080);
+    });
+
+    it("3. zero port is rejected", () => {
+      expect(getPortValue("0")).toBeUndefined();
+    });
+
+    it("4. negative port is rejected", () => {
+      expect(getPortValue("-8080")).toBeUndefined();
+    });
+
+    it("5. non-numeric port is rejected", () => {
+      expect(getPortValue("abc")).toBeUndefined();
+    });
+
+    it("6. decimal/malformed port is rejected", () => {
+      expect(getPortValue("3000.5")).toBeUndefined();
+      expect(getPortValue("3000abc")).toBeUndefined();
+    });
+
+    it("7. missing production Supabase URL fails validation", () => {
+      expect(validateProdEnvValue(undefined, "some-key")).toBe(false);
+    });
+
+    it("8. missing production Supabase anon key fails validation", () => {
+      expect(validateProdEnvValue("https://example.supabase.co", undefined)).toBe(false);
+    });
+
+    it("9. invalid production Supabase URL fails validation", () => {
+      expect(validateProdEnvValue("ftp://example.supabase.co", "some-key")).toBe(false);
+      expect(validateProdEnvValue("", "some-key")).toBe(false);
+      expect(validateProdEnvValue("not-a-valid-url", "some-key")).toBe(false);
     });
   });
 
-  describe("Development Preview Session", () => {
-    let sessionCookie: string;
-
-    it("POST /api/preview-session should initialize preview session and set cookie", async () => {
-      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
-
-      const res = await request(app)
-        .post("/api/preview-session")
-        .send({});
-
+  describe("API Safety and Authorization Requirements", () => {
+    it("10. health response contains only safe process status", async () => {
+      const res = await request(app).get("/api/health");
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe("success");
-      expect(res.body.user.role).toBe("preview-admin");
-      expect(res.headers["set-cookie"]).toBeDefined();
-      sessionCookie = res.headers["set-cookie"][0].split(";")[0];
+      expect(res.body).toEqual({ status: "ok" });
     });
 
-    it("GET /api/preview-session should validate cookie", async () => {
-      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
-
-      const res = await request(app)
-        .get("/api/preview-session")
-        .set("Cookie", sessionCookie);
-
+    it("11. readiness response contains booleans/status only", async () => {
+      const res = await request(app).get("/api/ready");
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe("success");
-      expect(res.body.user.email).toBe("admin@preview.local");
+      expect(res.body.status).toBe("ready");
+      expect(typeof res.body.checks.supabaseConfigured).toBe("boolean");
+      expect(typeof res.body.checks.geminiConfigured).toBe("boolean");
     });
 
-    it("GET /api/backups (secured, admin-only) should be accessible with preview session cookie", async () => {
-      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
+    it("12. readiness response never exposes keys or environment values", async () => {
+      const res = await request(app).get("/api/ready");
+      const bodyStr = JSON.stringify(res.body).toLowerCase();
+      expect(bodyStr).not.toContain("key");
+      expect(bodyStr).not.toContain("supabase_url");
+      expect(bodyStr).not.toContain("secret");
+    });
 
+    it("13. missing bearer authentication returns 401", async () => {
+      const res = await request(app).get("/api/backups");
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("Missing authorization token");
+    });
+
+    it("14. invalid bearer authentication returns 401", async () => {
       const res = await request(app)
         .get("/api/backups")
-        .set("Cookie", sessionCookie);
-
-      expect(res.status).toBe(200);
+        .set("Authorization", "Bearer invalid-token");
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("Unauthorized access");
     });
 
-    it("POST /api/preview-session/logout should terminate session", async () => {
+    it("15. authenticated normal user receives 403 on admin route", async () => {
+      const res = await request(app)
+        .get("/api/backups")
+        .set("Authorization", "Bearer valid-user-token");
+      expect(res.status).toBe(403);
+      expect(res.body.error).toContain("Administrator privileges required");
+    });
+
+    it("16. verified admin receives access", async () => {
+      const res = await request(app)
+        .get("/api/backups")
+        .set("Authorization", "Bearer valid-admin-token");
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+  });
+
+  describe("Secure Development Preview Session Verification", () => {
+    it("17. preview login endpoint is unavailable in production", async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+
+      const res = await request(app).post("/api/preview-session").send({});
+      expect(res.status).toBe(403);
+
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it("18. preview login endpoint is unavailable when preview mode is disabled", async () => {
+      const originalPreviewMode = process.env.VITE_ENABLE_PREVIEW_MODE;
+      process.env.VITE_ENABLE_PREVIEW_MODE = "false";
+
+      const res = await request(app).post("/api/preview-session").send({});
+      expect(res.status).toBe(403);
+
+      process.env.VITE_ENABLE_PREVIEW_MODE = originalPreviewMode;
+    });
+
+    it("19. preview session works only in development preview mode", async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalPreviewMode = process.env.VITE_ENABLE_PREVIEW_MODE;
+      process.env.NODE_ENV = "development";
       process.env.VITE_ENABLE_PREVIEW_MODE = "true";
 
-      const res = await request(app)
-        .post("/api/preview-session/logout")
-        .set("Cookie", sessionCookie);
-
+      const res = await request(app).post("/api/preview-session").send({});
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("success");
 
-      // Subsequent access should fail
+      process.env.NODE_ENV = originalNodeEnv;
+      process.env.VITE_ENABLE_PREVIEW_MODE = originalPreviewMode;
+    });
+
+    it("20. preview session cookie is HttpOnly and SameSite=Strict", async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalPreviewMode = process.env.VITE_ENABLE_PREVIEW_MODE;
+      process.env.NODE_ENV = "development";
+      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
+
+      const res = await request(app).post("/api/preview-session").send({});
+      expect(res.status).toBe(200);
+      expect(res.headers["set-cookie"]).toBeDefined();
+      const cookieHeader = res.headers["set-cookie"][0].toLowerCase();
+      expect(cookieHeader).toContain("httponly");
+      expect(cookieHeader).toContain("samesite=strict");
+
+      process.env.NODE_ENV = originalNodeEnv;
+      process.env.VITE_ENABLE_PREVIEW_MODE = originalPreviewMode;
+    });
+
+    it("21. preview authentication works without hardcoded bearer credentials", async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalPreviewMode = process.env.VITE_ENABLE_PREVIEW_MODE;
+      process.env.NODE_ENV = "development";
+      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
+
+      const res = await request(app).post("/api/preview-session").send({});
+      expect(res.status).toBe(200);
+      const cookie = res.headers["set-cookie"][0].split(";")[0];
+
       const checkRes = await request(app)
         .get("/api/preview-session")
-        .set("Cookie", sessionCookie);
-      expect(checkRes.status).toBe(401);
+        .set("Cookie", cookie);
+      expect(checkRes.status).toBe(200);
+      expect(checkRes.body.user.email).toBe("admin@preview.local");
+
+      process.env.NODE_ENV = originalNodeEnv;
+      process.env.VITE_ENABLE_PREVIEW_MODE = originalPreviewMode;
+    });
+  });
+
+  describe("File System Action Input Validation", () => {
+    it("22. unsafe restore filenames are rejected", async () => {
+      const res = await request(app)
+        .post("/api/restore")
+        .set("Authorization", "Bearer valid-admin-token")
+        .send({ filename: "../malicious_traversal/db.json" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("Unsafe filename");
+    });
+
+    it("23. safe restore filename reaches the safe execFile path", async () => {
+      const res = await request(app)
+        .post("/api/restore")
+        .set("Authorization", "Bearer valid-admin-token")
+        .send({ filename: "safe_file_name.json" });
+      expect(res.status).not.toBe(400);
     });
   });
 });

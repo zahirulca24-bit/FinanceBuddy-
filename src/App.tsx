@@ -5,7 +5,6 @@ import { DashboardView } from "./components/DashboardView";
 import { AddTransactionView } from "./components/AddTransactionView";
 import { AccountsView } from "./components/AccountsView";
 import { CategoriesView } from "./components/CategoriesView";
-import { BudgetsView } from "./components/BudgetsView";
 import { AccountingView } from "./components/AccountingView";
 import { ReportsView } from "./components/ReportsView";
 import { ReconciliationView } from "./components/ReconciliationView";
@@ -55,8 +54,6 @@ function AppContent() {
         return <DebtManagementView />;
       case "categories":
         return <CategoriesView />;
-      case "budgets":
-        return <BudgetsView />;
       case "accounting":
         return <AccountingView />;
       case "reconciliation":
