@@ -158,4 +158,61 @@ describe("Finance Buddy Secure Runnable Foundation Tests", () => {
       expect(validateProdEnvTest("https://example.supabase.co", "")).toBe(false);
     });
   });
+
+  describe("Development Preview Session", () => {
+    let sessionCookie: string;
+
+    it("POST /api/preview-session should initialize preview session and set cookie", async () => {
+      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
+
+      const res = await request(app)
+        .post("/api/preview-session")
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("success");
+      expect(res.body.user.role).toBe("preview-admin");
+      expect(res.headers["set-cookie"]).toBeDefined();
+      sessionCookie = res.headers["set-cookie"][0].split(";")[0];
+    });
+
+    it("GET /api/preview-session should validate cookie", async () => {
+      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
+
+      const res = await request(app)
+        .get("/api/preview-session")
+        .set("Cookie", sessionCookie);
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("success");
+      expect(res.body.user.email).toBe("admin@preview.local");
+    });
+
+    it("GET /api/backups (secured, admin-only) should be accessible with preview session cookie", async () => {
+      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
+
+      const res = await request(app)
+        .get("/api/backups")
+        .set("Cookie", sessionCookie);
+
+      expect(res.status).toBe(200);
+    });
+
+    it("POST /api/preview-session/logout should terminate session", async () => {
+      process.env.VITE_ENABLE_PREVIEW_MODE = "true";
+
+      const res = await request(app)
+        .post("/api/preview-session/logout")
+        .set("Cookie", sessionCookie);
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("success");
+
+      // Subsequent access should fail
+      const checkRes = await request(app)
+        .get("/api/preview-session")
+        .set("Cookie", sessionCookie);
+      expect(checkRes.status).toBe(401);
+    });
+  });
 });

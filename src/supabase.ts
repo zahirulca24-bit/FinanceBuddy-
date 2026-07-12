@@ -23,9 +23,5 @@ export const getAuthHeader = async (): Promise<Record<string, string>> => {
   if (data?.session?.access_token) {
     return { "Authorization": `Bearer ${data.session.access_token}` };
   }
-  const saved = sessionStorage.getItem("preview-user");
-  if (saved) {
-    return { "Authorization": "Bearer preview-token" };
-  }
   return {};
 };

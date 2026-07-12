@@ -31,7 +31,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSessionEstablished }) => {
     }
   }, []);
 
-  const isPreviewEnabled = !!((import.meta as any).env.DEV && (import.meta as any).env.VITE_ENABLE_PREVIEW_MODE === "true");
+  const isPreviewEnabled = (import.meta as any).env.MODE !== "production" && (import.meta as any).env.VITE_ENABLE_PREVIEW_MODE === "true";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,16 +69,32 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSessionEstablished }) => {
     setSuccessMsg(null);
     setLoading(true);
     
-    setTimeout(() => {
-      const previewUser = {
-        id: "00000000-0000-0000-0000-000000000000",
-        email: "admin@preview.local",
-        role: "preview-admin"
-      };
-      sessionStorage.setItem("preview-user", JSON.stringify(previewUser));
-      onSessionEstablished();
+    try {
+      const response = await fetch("/api/preview-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({}),
+        credentials: "same-origin"
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to establish preview session (Status: ${response.status})`);
+      }
+
+      const data = await response.json();
+      if (data.status === "success") {
+        onSessionEstablished();
+      } else {
+        throw new Error("Invalid response from server");
+      }
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred during preview session initialization.");
+    } finally {
       setLoading(false);
-    }, 650);
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {

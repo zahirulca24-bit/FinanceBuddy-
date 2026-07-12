@@ -162,6 +162,7 @@ export const AddTransactionView: React.FC = () => {
             "Content-Type": "application/json",
             ...authHeader,
           },
+          credentials: "same-origin",
           body: JSON.stringify({
             fileData: base64Data,
             mimeType: mimeType,

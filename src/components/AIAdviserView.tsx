@@ -389,6 +389,7 @@ export const AIAdviserView: React.FC<AIAdviserViewProps> = ({ onNavigate }) => {
           "Content-Type": "application/json",
           ...authHeader
         },
+        credentials: "same-origin",
         body: JSON.stringify({
           transactions: minTransactions,
           accounts: minAccounts,
@@ -590,6 +591,7 @@ export const AIAdviserView: React.FC<AIAdviserViewProps> = ({ onNavigate }) => {
           "Content-Type": "application/json",
           ...authHeader
         },
+        credentials: "same-origin",
         body: JSON.stringify({
           message: rawText,
           history: history,

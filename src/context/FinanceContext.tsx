@@ -131,17 +131,7 @@ const mapReconciliationFromDb = (row: any): ReconciliationRecord => ({
 // --- PROVIDER ---
 
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<any>(() => {
-    const saved = sessionStorage.getItem("preview-user");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (_) {
-        return null;
-      }
-    }
-    return null;
-  });
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -169,6 +159,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           "Content-Type": "application/json",
           ...authHeader
         },
+        credentials: "same-origin",
         body: JSON.stringify({ action, table, recordId, oldValue, newValue })
       });
     } catch (err) {
@@ -208,46 +199,81 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ...dbCategories
   ];
 
+  const checkPreviewSession = async (): Promise<any | null> => {
+    const isPreviewEnabled = (import.meta as any).env.MODE !== "production" && (import.meta as any).env.VITE_ENABLE_PREVIEW_MODE === "true";
+    if (!isPreviewEnabled) return null;
+    try {
+      const res = await fetch("/api/preview-session", { credentials: "same-origin" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.status === "success" && data?.user) {
+          return data.user;
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch preview session:", e);
+    }
+    return null;
+  };
+
   // Auth session state listener
   useEffect(() => {
-    const savedPreview = sessionStorage.getItem("preview-user");
-    if (savedPreview) {
-      try {
-        const parsed = JSON.parse(savedPreview);
-        setUser(parsed);
-        setLoading(false);
+    let isSubscribed = true;
+
+    const initSession = async () => {
+      if (!isSupabaseConfigured) {
+        const pUser = await checkPreviewSession();
+        if (isSubscribed) {
+          setUser(pUser);
+          setLoading(false);
+        }
         return;
-      } catch (_) {}
-    }
+      }
 
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          if (isSubscribed) {
+            setUser(session.user);
+            setLoading(false);
+          }
+          return;
+        }
+      } catch (err) {
+        console.error("Supabase session error:", err);
+      }
 
-    // Check current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+      const pUser = await checkPreviewSession();
+      if (isSubscribed) {
+        setUser(pUser);
+        setLoading(false);
+      }
+    };
+
+    initSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const isPreview = sessionStorage.getItem("preview-user");
-      if (isPreview) return;
-
-      setUser(session?.user ?? null);
-      if (!session) {
-        // Clear local state on logout
-        setAccounts([]);
-        setTransactions([]);
-        setDbCategories([]);
-        setReconciliations([]);
-        setCategoryBudgets({});
-        setLoading(false);
+      if (!isSubscribed) return;
+      if (session?.user) {
+        setUser(session.user);
+      } else {
+        checkPreviewSession().then((pUser) => {
+          if (isSubscribed) {
+            setUser(pUser);
+            if (!pUser) {
+              setAccounts([]);
+              setTransactions([]);
+              setDbCategories([]);
+              setReconciliations([]);
+              setCategoryBudgets({});
+            }
+          }
+        });
       }
     });
 
     return () => {
+      isSubscribed = false;
       subscription.unsubscribe();
     };
   }, []);

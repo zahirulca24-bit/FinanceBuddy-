@@ -113,29 +113,39 @@ const supabaseServer = createClient(
   supabaseAnonKey || "placeholder-anon-key"
 );
 
+const activePreviewSessions = new Set<string>();
+
+const getCookie = (cookieHeader: string | undefined, name: string): string | undefined => {
+  if (!cookieHeader) return undefined;
+  const match = cookieHeader.match(new RegExp('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)'));
+  return match ? match[2] : undefined;
+};
+
 // Middleware to secure endpoints and validate Supabase Access Tokens (JWT)
 const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const isProduction = process.env.NODE_ENV === "production";
+  const isPreviewEnabled = process.env.VITE_ENABLE_PREVIEW_MODE === "true";
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    if (isProduction) {
-      return res.status(503).json({ error: "Service Unavailable: Authentication service misconfigured." });
-    }
-    const isPreviewEnabled = process.env.VITE_ENABLE_PREVIEW_MODE === "true";
-    if (isPreviewEnabled) {
-      const authHeader = req.headers.authorization;
-      if (authHeader && authHeader === "Bearer preview-token") {
-        (req as any).user = {
-          id: "00000000-0000-0000-0000-000000000000",
-          email: "admin@preview.local",
-          app_metadata: { role: "admin" }
-        };
-        return next();
-      }
-    }
-    return res.status(401).json({ error: "Authentication service is not configured." });
+  // Check safe 503 for production authentication misconfiguration
+  if (isProduction && (!process.env.VITE_SUPABASE_URL || !process.env.VITE_SUPABASE_ANON_KEY)) {
+    return res.status(503).json({ error: "Service Unavailable: Authentication service misconfigured." });
   }
 
+  // 1. Check secure preview cookie (only in development preview mode)
+  if (!isProduction && isPreviewEnabled) {
+    const cookieHeader = req.headers.cookie;
+    const sessionCookie = getCookie(cookieHeader, "preview_session");
+    if (sessionCookie && activePreviewSessions.has(sessionCookie)) {
+      (req as any).user = {
+        id: "00000000-0000-0000-0000-000000000000",
+        email: "admin@preview.local",
+        app_metadata: { role: "preview-admin" }
+      };
+      return next();
+    }
+  }
+
+  // 2. Validate Supabase bearer token
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ error: "Missing authorization token. Please log in first." });
@@ -143,13 +153,12 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
 
   const token = authHeader.replace("Bearer ", "");
 
-  if (!isProduction && process.env.VITE_ENABLE_PREVIEW_MODE === "true" && token === "preview-token") {
-    (req as any).user = {
-      id: "00000000-0000-0000-0000-000000000000",
-      email: "admin@preview.local",
-      app_metadata: { role: "admin" }
-    };
-    return next();
+  if (token === "preview-token") {
+    return res.status(401).json({ error: "Unauthorized access: Invalid token." });
+  }
+
+  if (!process.env.VITE_SUPABASE_URL || !process.env.VITE_SUPABASE_ANON_KEY) {
+    return res.status(503).json({ error: "Service Unavailable: Authentication service misconfigured." });
   }
 
   try {
@@ -169,6 +178,14 @@ const requireAdmin = (req: express.Request, res: express.Response, next: express
   const user = (req as any).user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: User session not found." });
+  }
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const isPreviewEnabled = process.env.VITE_ENABLE_PREVIEW_MODE === "true";
+
+  // Check if they are a development-only preview admin
+  if (!isProduction && isPreviewEnabled && user.app_metadata?.role === "preview-admin") {
+    return next();
   }
 
   const isSupabaseAdmin = user.app_metadata?.role === "admin";
@@ -793,6 +810,92 @@ app.post("/api/backup/auto", requireAuth, requireAdmin, adminLimiter, async (req
   }
 });
 
+// ====================================================================
+// DEVELOPMENT PREVIEW SESSION MANAGEMENT (Development-Only)
+// ====================================================================
+
+// POST /api/preview-session - Initialize preview session
+app.post("/api/preview-session", (req, res) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  const isPreviewEnabled = process.env.VITE_ENABLE_PREVIEW_MODE === "true";
+
+  if (isProduction || !isPreviewEnabled) {
+    return res.status(403).json({ error: "Preview session mode is disabled in this environment." });
+  }
+
+  // Generate a cryptographically secure random session ID
+  const sessionId = require("crypto").randomBytes(32).toString("hex");
+  activePreviewSessions.add(sessionId);
+
+  // Set standard HttpOnly, SameSite=Strict cookie
+  res.cookie("preview_session", sessionId, {
+    httpOnly: true,
+    sameSite: "strict",
+    path: "/",
+    maxAge: 24 * 60 * 60 * 1000 // 1 day
+  });
+
+  return res.json({
+    status: "success",
+    user: {
+      id: "00000000-0000-0000-0000-000000000000",
+      email: "admin@preview.local",
+      role: "preview-admin"
+    }
+  });
+});
+
+// GET /api/preview-session - Validate active preview session
+app.get("/api/preview-session", (req, res) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  const isPreviewEnabled = process.env.VITE_ENABLE_PREVIEW_MODE === "true";
+
+  if (isProduction || !isPreviewEnabled) {
+    return res.status(403).json({ error: "Preview session mode is disabled in this environment." });
+  }
+
+  const cookieHeader = req.headers.cookie;
+  const sessionCookie = getCookie(cookieHeader, "preview_session");
+
+  if (sessionCookie && activePreviewSessions.has(sessionCookie)) {
+    return res.json({
+      status: "success",
+      user: {
+        id: "00000000-0000-0000-0000-000000000000",
+        email: "admin@preview.local",
+        role: "preview-admin"
+      }
+    });
+  }
+
+  return res.status(401).json({ error: "No active preview session found." });
+});
+
+// POST /api/preview-session/logout - End preview session
+app.post("/api/preview-session/logout", (req, res) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  const isPreviewEnabled = process.env.VITE_ENABLE_PREVIEW_MODE === "true";
+
+  if (isProduction || !isPreviewEnabled) {
+    return res.status(403).json({ error: "Preview session mode is disabled in this environment." });
+  }
+
+  const cookieHeader = req.headers.cookie;
+  const sessionCookie = getCookie(cookieHeader, "preview_session");
+
+  if (sessionCookie) {
+    activePreviewSessions.delete(sessionCookie);
+  }
+
+  res.clearCookie("preview_session", {
+    httpOnly: true,
+    sameSite: "strict",
+    path: "/"
+  });
+
+  return res.json({ status: "success", message: "Preview session terminated." });
+});
+
 // Vite / static file serving integration
 async function main() {
   if (process.env.NODE_ENV !== "production") {
@@ -816,7 +919,7 @@ async function main() {
   });
 }
 
-if (process.env.NODE_ENV !== "test") {
+if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
   main().catch((err) => {
     console.error("Failed to start server:", err);
   });

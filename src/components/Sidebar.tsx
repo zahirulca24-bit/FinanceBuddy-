@@ -19,6 +19,7 @@ import {
   Sliders
 } from "lucide-react";
 import { supabase } from "../supabase";
+import { useFinance } from "../context/FinanceContext";
 
 interface SidebarProps {
   activeTab: string;
@@ -27,6 +28,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { user } = useFinance();
 
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -45,7 +47,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   ];
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    if (user?.role === "preview-admin") {
+      try {
+        await fetch("/api/preview-session/logout", { method: "POST", credentials: "same-origin" });
+      } catch (e) {
+        console.error("Failed to sign out from preview session:", e);
+      }
+      window.location.reload();
+    } else {
+      await supabase.auth.signOut();
+    }
   };
 
   const handleNavClick = (tabId: string) => {
@@ -140,10 +151,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
         {/* Footer Area with workspace indicator & logout button */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/40 space-y-3">
-          <div className="flex items-center space-x-2 px-2.5 py-2 bg-slate-900/60 rounded-xl border border-slate-800/50">
-            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-mono text-slate-400 tracking-wider">SECURE WORKSPACE</span>
-          </div>
+          {user?.role === "preview-admin" ? (
+            <div className="flex flex-col gap-1 px-2.5 py-2 bg-amber-950/30 rounded-xl border border-amber-800/40">
+              <div className="flex items-center space-x-2">
+                <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-[10px] font-mono text-amber-400 font-bold tracking-wider">DEV PREVIEW ACTIVE</span>
+              </div>
+              <span className="text-[8px] text-amber-500/80 font-mono">Sandbox Local Database Mode</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2 px-2.5 py-2 bg-slate-900/60 rounded-xl border border-slate-800/50">
+              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-mono text-slate-400 tracking-wider">SECURE WORKSPACE</span>
+            </div>
+          )}
 
           <button
             onClick={handleLogout}

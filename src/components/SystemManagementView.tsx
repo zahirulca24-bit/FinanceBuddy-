@@ -79,12 +79,12 @@ export const SystemManagementView: React.FC = () => {
     try {
       const headers = await getHeaders();
       if (activeSubTab === "backups") {
-        const res = await fetch("/api/backups", { headers });
+        const res = await fetch("/api/backups", { headers, credentials: "same-origin" });
         if (!res.ok) throw new Error("Failed to fetch backups list");
         const data = await res.json();
         setBackups(data);
       } else if (activeSubTab === "audit") {
-        const res = await fetch("/api/audit", { headers });
+        const res = await fetch("/api/audit", { headers, credentials: "same-origin" });
         if (!res.ok) throw new Error("Failed to fetch audit logs");
         const data = await res.json();
         setAuditLogs(data);
@@ -103,7 +103,7 @@ export const SystemManagementView: React.FC = () => {
     setSuccess(null);
     try {
       const headers = await getHeaders();
-      const res = await fetch("/api/backup", { method: "POST", headers });
+      const res = await fetch("/api/backup", { method: "POST", headers, credentials: "same-origin" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Manual backup failed");
       setSuccess("Manual backup successfully completed! A snapshots ledger was committed to storage.");
@@ -121,7 +121,7 @@ export const SystemManagementView: React.FC = () => {
     setSuccess(null);
     try {
       const headers = await getHeaders();
-      const res = await fetch("/api/backup/auto", { method: "POST", headers });
+      const res = await fetch("/api/backup/auto", { method: "POST", headers, credentials: "same-origin" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Auto backup failed");
       setSuccess("Auto backup checked and updated! Standard rotated copies were synchronized.");
@@ -145,6 +145,7 @@ export const SystemManagementView: React.FC = () => {
       const res = await fetch("/api/restore", { 
         method: "POST", 
         headers,
+        credentials: "same-origin",
         body: JSON.stringify({ filename })
       });
       const data = await res.json();
