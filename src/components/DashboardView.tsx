@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useFinance } from "../context/FinanceContext";
 import {
   TrendingUp,
@@ -14,7 +14,12 @@ import {
   Sparkles,
   Upload,
   Wallet2,
-  Coins
+  Coins,
+  Bell,
+  Trash2,
+  X,
+  CheckCircle2,
+  Clock
 } from "lucide-react";
 import { Account, Transaction } from "../types";
 
@@ -33,12 +38,187 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     totalExpenses,
     monthlySavings,
     receivables,
-    payables
+    payables,
+    addTransaction
   } = useFinance();
 
   // Get current year-month (e.g. "2026-07")
   const now = new Date();
   const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  // ==================== RECURRING BILLS REMINDERS STATE & LOGIC ====================
+  interface RecurringExpense {
+    id: string;
+    name: string;
+    amount: number;
+    category: string;
+    dueDay: number;
+    lastPaidMonth?: string;
+  }
+
+  const [recurringBills, setRecurringBills] = useState<RecurringExpense[]>([]);
+  const [dismissedToasts, setDismissedToasts] = useState<string[]>([]);
+  const [toasts, setToasts] = useState<any[]>([]);
+  
+  // Custom form state for adding a bill
+  const [isAddingBill, setIsAddingBill] = useState(false);
+  const [newBillName, setNewBillName] = useState("");
+  const [newBillAmount, setNewBillAmount] = useState("");
+  const [newBillCategory, setNewBillCategory] = useState("Utility bills");
+  const [newBillDueDay, setNewBillDueDay] = useState("10");
+
+  // Load recurring bills
+  useEffect(() => {
+    const saved = localStorage.getItem("finance_buddy_recurring_expenses");
+    if (saved) {
+      setRecurringBills(JSON.parse(saved));
+    } else {
+      const defaults: RecurringExpense[] = [
+        { id: "rec-rent", name: "Apartment Rent", amount: 15000, category: "Rent", dueDay: 5, lastPaidMonth: "" },
+        { id: "rec-internet", name: "High-Speed Internet", amount: 1200, category: "Utility bills", dueDay: 10, lastPaidMonth: "" },
+        { id: "rec-electricity", name: "Electricity Board Bill", amount: 2500, category: "Utility bills", dueDay: 18, lastPaidMonth: "" },
+        { id: "rec-netflix", name: "Netflix Premium", amount: 1150, category: "Utility bills", dueDay: 25, lastPaidMonth: "" }
+      ];
+      setRecurringBills(defaults);
+      localStorage.setItem("finance_buddy_recurring_expenses", JSON.stringify(defaults));
+    }
+  }, []);
+
+  // Calculate active alerts and trigger toast reminders
+  useEffect(() => {
+    if (recurringBills.length === 0) {
+      setToasts([]);
+      return;
+    }
+    
+    const today = new Date();
+    const todayDay = today.getDate();
+    const activeToasts: any[] = [];
+
+    recurringBills.forEach((bill) => {
+      // Skip if already paid this month
+      if (bill.lastPaidMonth === currentYearMonth) return;
+      // Skip if explicitly dismissed in this active session
+      if (dismissedToasts.includes(bill.id)) return;
+
+      const daysRemaining = bill.dueDay - todayDay;
+      const formattedAmt = formatCurrency(bill.amount);
+
+      if (daysRemaining >= 0 && daysRemaining <= 5) {
+        activeToasts.push({
+          id: bill.id,
+          billId: bill.id,
+          title: `Upcoming Bill: ${bill.name}`,
+          message: `${bill.name} of ${formattedAmt} is due in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"} (due on the ${bill.dueDay}th).`,
+          type: "approaching"
+        });
+      } else if (daysRemaining < 0) {
+        activeToasts.push({
+          id: bill.id,
+          billId: bill.id,
+          title: `OVERDUE BILL: ${bill.name}`,
+          message: `${bill.name} of ${formattedAmt} was due on the ${bill.dueDay}th and remains unpaid for the current month!`,
+          type: "overdue"
+        });
+      }
+    });
+
+    setToasts(activeToasts);
+  }, [recurringBills, dismissedToasts, currentYearMonth]);
+
+  const dismissToast = (id: string) => {
+    setDismissedToasts([...dismissedToasts, id]);
+  };
+
+  const payBill = async (billId: string) => {
+    const bill = recurringBills.find((b) => b.id === billId);
+    if (!bill) return;
+    
+    const defaultAccount = accounts.find((a) => a.type === "Bank account" || a.type === "Cash") || accounts[0];
+    if (!defaultAccount) {
+      alert("Error: Please configure a ledger account in Accounts first before paying bills.");
+      return;
+    }
+
+    try {
+      const todayStr = new Date().toISOString().split("T")[0];
+      await addTransaction({
+        date: todayStr,
+        type: "Expense",
+        account: defaultAccount.id,
+        category: bill.category,
+        description: `${bill.name} (Recurring Paid)`,
+        amount: bill.amount,
+        paymentMethod: defaultAccount.type,
+        referenceNumber: `REC-PAY-${new Date().getTime().toString().slice(-4)}`,
+        notes: `Automatically recorded monthly bill payment. Paid via ${defaultAccount.name}.`,
+        isReceivable: false,
+        isPayable: false,
+        isCleared: true
+      });
+
+      const updated = recurringBills.map((b) => {
+        if (b.id === billId) {
+          return { ...b, lastPaidMonth: currentYearMonth };
+        }
+        return b;
+      });
+
+      setRecurringBills(updated);
+      localStorage.setItem("finance_buddy_recurring_expenses", JSON.stringify(updated));
+      setDismissedToasts([...dismissedToasts, billId]);
+      alert(`Ledger transaction created: Paid ${bill.name} of ${formatCurrency(bill.amount)} successfully!`);
+    } catch (err) {
+      alert("Failed to auto-record payment in general ledger.");
+    }
+  };
+
+  const deleteBill = (billId: string) => {
+    if (window.confirm("Are you sure you want to remove this recurring monthly bill from reminders?")) {
+      const updated = recurringBills.filter((b) => b.id !== billId);
+      setRecurringBills(updated);
+      localStorage.setItem("finance_buddy_recurring_expenses", JSON.stringify(updated));
+    }
+  };
+
+  const addCustomBill = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBillName.trim() || !newBillAmount) {
+      alert("Please provide a name and amount for the bill.");
+      return;
+    }
+
+    const amt = parseFloat(newBillAmount);
+    const day = parseInt(newBillDueDay);
+
+    if (isNaN(amt) || amt <= 0) {
+      alert("Please enter a valid positive amount.");
+      return;
+    }
+
+    if (isNaN(day) || day < 1 || day > 31) {
+      alert("Please enter a valid due day between 1 and 31.");
+      return;
+    }
+
+    const newBill: RecurringExpense = {
+      id: `rec-${Date.now()}`,
+      name: newBillName.trim(),
+      amount: amt,
+      category: newBillCategory,
+      dueDay: day,
+      lastPaidMonth: ""
+    };
+
+    const updated = [...recurringBills, newBill];
+    setRecurringBills(updated);
+    localStorage.setItem("finance_buddy_recurring_expenses", JSON.stringify(updated));
+
+    // Clear form
+    setNewBillName("");
+    setNewBillAmount("");
+    setIsAddingBill(false);
+  };
 
   // Sum monthly expenses per category
   const categorySpending: Record<string, number> = {};
@@ -108,7 +288,59 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   );
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <>
+      {/* Floating Toast Notification Area */}
+      <div className="fixed top-6 right-6 z-50 flex flex-col gap-3.5 max-w-sm w-full pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className="pointer-events-auto bg-slate-900/95 backdrop-blur border border-slate-800 text-white rounded-xl shadow-2xl p-4 flex items-start gap-3.5 transition-all duration-300 transform translate-y-0 opacity-100 font-sans"
+          >
+            <div className={`p-2 rounded-lg ${
+              toast.type === "overdue"
+                ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+            }`}>
+              <Bell className="h-4 w-4" />
+            </div>
+            
+            <div className="flex-1 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className={`text-[9px] uppercase font-bold tracking-wider ${
+                  toast.type === "overdue" ? "text-rose-400 animate-pulse" : "text-amber-400"
+                }`}>
+                  {toast.type === "overdue" ? "🚨 Overdue Monthly Bill" : "🔔 Approaching Bill"}
+                </span>
+                <button
+                  onClick={() => dismissToast(toast.id)}
+                  className="text-slate-400 hover:text-white p-0.5 rounded transition-colors cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <h4 className="text-xs font-bold text-slate-100">{toast.title}</h4>
+              <p className="text-[11px] text-slate-400 leading-relaxed font-medium">{toast.message}</p>
+              
+              <div className="flex items-center gap-2 pt-1.5">
+                <button
+                  onClick={() => payBill(toast.billId)}
+                  className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[9px] font-bold uppercase tracking-wider rounded-md shadow-sm transition cursor-pointer"
+                >
+                  Pay Bill
+                </button>
+                <button
+                  onClick={() => dismissToast(toast.id)}
+                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-bold uppercase tracking-wider rounded-md transition cursor-pointer"
+                >
+                  Later
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Left Column (Primary Statistics, Charts, & Ledger) */}
       <div className="lg:col-span-8 space-y-6">
         {/* Overview Cards Grid */}
@@ -563,7 +795,171 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </div>
           </div>
         )}
+
+        {/* Recurring Monthly Bills & Reminders Card */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col hover:shadow-md transition-all">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 font-sans">
+                <Bell className="h-4 w-4 text-amber-500" />
+                Monthly Bill Reminders
+              </h4>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Known recurring monthly expenses & bill dates</p>
+            </div>
+            <button
+              onClick={() => setIsAddingBill(!isAddingBill)}
+              className="text-[10px] uppercase font-bold tracking-wider text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
+            >
+              {isAddingBill ? "Cancel" : "+ Add Bill"}
+            </button>
+          </div>
+
+          {/* Inline Form to Add a New Bill */}
+          {isAddingBill && (
+            <form onSubmit={addCustomBill} className="bg-slate-50 border border-slate-100 p-3.5 rounded-lg mb-4 space-y-3 font-sans">
+              <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider block">Add Recurring Monthly Bill</span>
+              
+              <div className="space-y-2">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-500 block mb-1">Bill Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. WiFi Bill"
+                    value={newBillName}
+                    onChange={(e) => setNewBillName(e.target.value)}
+                    className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none font-semibold"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-500 block mb-1">Amount (৳)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      placeholder="1200"
+                      value={newBillAmount}
+                      onChange={(e) => setNewBillAmount(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-500 block mb-1">Due Day (1-31)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max="31"
+                      value={newBillDueDay}
+                      onChange={(e) => setNewBillDueDay(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-bold text-slate-500 block mb-1">Category</label>
+                  <select
+                    value={newBillCategory}
+                    onChange={(e) => setNewBillCategory(e.target.value)}
+                    className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none font-semibold text-slate-700"
+                  >
+                    <option value="Rent">Rent</option>
+                    <option value="Utility bills">Utility bills</option>
+                    <option value="Family expense">Family expense</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Other expense">Other expense</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold uppercase tracking-wider shadow-sm transition"
+              >
+                Save Bill
+              </button>
+            </form>
+          )}
+
+          {/* List of Recurring Bills */}
+          <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+            {recurringBills.length === 0 ? (
+              <p className="text-xs text-slate-400 italic text-center py-4">No monthly bills registered.</p>
+            ) : (
+              recurringBills.map((bill) => {
+                const todayDay = new Date().getDate();
+                const daysRemaining = bill.dueDay - todayDay;
+                const isPaid = bill.lastPaidMonth === currentYearMonth;
+                
+                let statusLabel = "";
+                let statusClass = "";
+
+                if (isPaid) {
+                  statusLabel = "Paid";
+                  statusClass = "bg-emerald-50 text-emerald-700 border border-emerald-100";
+                } else if (daysRemaining < 0) {
+                  statusLabel = "Overdue";
+                  statusClass = "bg-rose-50 text-rose-700 border border-rose-100 animate-pulse font-bold";
+                } else if (daysRemaining <= 5) {
+                  statusLabel = `Due in ${daysRemaining}d`;
+                  statusClass = "bg-amber-50 text-amber-700 border border-amber-100 font-bold";
+                } else {
+                  statusLabel = `Due on ${bill.dueDay}th`;
+                  statusClass = "bg-slate-100 text-slate-600";
+                }
+
+                return (
+                  <div key={bill.id} className="p-3 bg-slate-50 border border-slate-100 hover:border-blue-100 hover:bg-white rounded-lg transition-all group/item flex flex-col gap-2 font-sans">
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-bold text-slate-700 text-xs truncate block" title={bill.name}>
+                          {bill.name}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider block">
+                          {bill.category} • Day {bill.dueDay}
+                        </span>
+                      </div>
+                      
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider shrink-0 ${statusClass}`}>
+                        {statusLabel}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-slate-100/50 pt-2 mt-0.5">
+                      <span className="font-bold text-slate-800 text-xs font-mono">
+                        {formatCurrency(bill.amount)}
+                      </span>
+                      
+                      <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 group-hover/item:opacity-100 transition-opacity">
+                        {!isPaid && (
+                          <button
+                            onClick={() => payBill(bill.id)}
+                            className="bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-blue-100 transition cursor-pointer"
+                            title="Mark as Paid & record transaction"
+                          >
+                            Mark Paid
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteBill(bill.id)}
+                          className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition cursor-pointer"
+                          title="Delete Reminder"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     </div>
-  );
+  </>
+);
 };

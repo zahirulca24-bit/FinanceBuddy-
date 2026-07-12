@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase, isSupabaseConfigured } from "../supabase";
-import { ShieldCheck, Mail, Lock, Loader2, AlertCircle, RefreshCw, KeyRound, Copy, Check, User, TrendingUp, TrendingDown, DollarSign, CheckCircle2, Wallet, BrainCircuit, ArrowUpRight, Percent, Activity } from "lucide-react";
+import { ShieldCheck, Mail, Lock, Loader2, AlertCircle, RefreshCw, KeyRound, Copy, Check, User, TrendingUp, TrendingDown, DollarSign, CheckCircle2, Wallet, BrainCircuit, ArrowUpRight, Percent, Activity, ReceiptText, BadgeCheck, Sparkles } from "lucide-react";
 
 interface AuthViewProps {
   onSessionEstablished: () => void;
@@ -402,117 +402,100 @@ CREATE TABLE IF NOT EXISTS public.accounts (
       </div>
 
       {/* RIGHT COLUMN: 60% on lg:, 55% on md:, flex on mobile below form */}
-      <div className="w-full md:w-[55%] lg:w-[60%] bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden md:min-h-screen min-h-[500px]">
+      <div className="w-full md:w-[55%] lg:w-[60%] bg-gradient-to-br from-[#1E3A8A] via-[#2948A5] to-[#4338CA] p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden md:min-h-screen min-h-[500px]">
         {/* Decorative background effects */}
-        <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-blue-500/10 blur-[100px]" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-500/10 blur-[100px]" />
+        <div className="absolute top-[-5%] right-[-5%] w-[450px] h-[450px] rounded-full bg-blue-400/20 blur-[90px]" />
+        <div className="absolute bottom-[-5%] left-[-5%] w-[450px] h-[450px] rounded-full bg-indigo-400/20 blur-[90px]" />
         
         {/* Subtle grid pattern overlay */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px]" />
 
         <div className="relative z-10 max-w-2xl mx-auto my-auto flex flex-col justify-center space-y-10 py-6">
           {/* Header section in decorative panel */}
           <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full text-blue-200 text-xs font-semibold tracking-wide backdrop-blur-md">
-              <span className="h-1.5 w-1.5 bg-emerald-400 rounded-full animate-ping" />
-              <span>Version 2.0.0 Active</span>
-            </div>
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-none font-sans">
-              Take Control of Your <br/>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-200 to-white">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-tight font-sans max-w-xl">
+              Take Control of Your <br className="hidden sm:inline" />
+              <span className="text-blue-200">
                 Financial Future
               </span>
             </h1>
-            <p className="text-slate-300 text-xs sm:text-sm leading-relaxed max-w-xl font-medium">
-              Track accounts, manage transactions, monitor budgets, reconcile banks, and receive AI-powered financial insights from one secure workspace.
+            <p className="text-slate-200 text-sm sm:text-base leading-relaxed max-w-xl font-medium">
+              Manage accounts, organize transactions, reconcile bank records, and receive AI-assisted financial guidance from one secure workspace.
             </p>
           </div>
 
-          {/* Decorative dashboard dashboard elements - grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Feature-Based Design Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             
-            {/* Balance Summary Card */}
-            <div className="p-5 bg-white/5 border border-white/10 rounded-2xl shadow-xl backdrop-blur-md space-y-3 hover:border-white/15 transition duration-300">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Current Balance</span>
-                <Wallet className="h-4.5 w-4.5 text-blue-400" />
-              </div>
-              <div className="space-y-1">
-                <div className="text-2xl font-black text-white font-mono">৳ 125,400</div>
-                <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-bold">
-                  <ArrowUpRight className="h-3 w-3" />
-                  <span>+৳ 12,850 this week</span>
+            {/* Feature 1 */}
+            <div className="p-5 bg-white/10 border border-white/15 rounded-2xl shadow-sm backdrop-blur-md space-y-3 hover:bg-white/12 hover:border-white/20 transition duration-300">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 bg-blue-400/10 border border-blue-400/20 text-blue-300 rounded-xl flex items-center justify-center shrink-0">
+                  <Wallet className="h-5 w-5" />
                 </div>
+                <h3 className="font-bold text-slate-100 text-sm leading-tight">Unified Account Management</h3>
               </div>
+              <p className="text-slate-200 text-xs leading-relaxed font-normal">
+                View and manage your financial accounts from one organized workspace.
+              </p>
             </div>
 
-            {/* Savings Progress Card */}
-            <div className="p-5 bg-white/5 border border-white/10 rounded-2xl shadow-xl backdrop-blur-md space-y-3 hover:border-white/15 transition duration-300">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Savings Goal</span>
-                <span className="text-xs font-black text-indigo-300">72% Achieved</span>
-              </div>
-              <div className="space-y-2">
-                <div className="text-2xl font-black text-white font-mono">৳ 18,250 <span className="text-xs text-slate-400 font-normal">saved</span></div>
-                <div className="w-full bg-white/10 rounded-full h-2">
-                  <div className="bg-gradient-to-r from-blue-500 to-indigo-400 h-2 rounded-full" style={{ width: '72%' }} />
+            {/* Feature 2 */}
+            <div className="p-5 bg-white/10 border border-white/15 rounded-2xl shadow-sm backdrop-blur-md space-y-3 hover:bg-white/12 hover:border-white/20 transition duration-300">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 bg-cyan-400/10 border border-cyan-400/20 text-cyan-300 rounded-xl flex items-center justify-center shrink-0">
+                  <ReceiptText className="h-5 w-5" />
                 </div>
+                <h3 className="font-bold text-slate-100 text-sm leading-tight">Organized Transaction Records</h3>
               </div>
+              <p className="text-slate-200 text-xs leading-relaxed font-normal">
+                Record, review, and categorize financial activity with clarity.
+              </p>
             </div>
 
-            {/* Income & Expense Mini Card */}
-            <div className="p-5 bg-white/5 border border-white/10 rounded-2xl shadow-xl backdrop-blur-md hover:border-white/15 transition duration-300 sm:col-span-2">
-              <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block mb-3">Quick Cash Flow Overview</span>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center">
-                    <TrendingUp className="h-5 w-5" />
+            {/* Feature 3 */}
+            <div className="p-5 bg-white/10 border border-white/15 rounded-2xl shadow-sm backdrop-blur-md space-y-3 hover:bg-white/12 hover:border-white/20 transition duration-300">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-10 bg-emerald-400/10 border border-emerald-400/20 text-emerald-300 rounded-xl flex items-center justify-center shrink-0">
+                    <BadgeCheck className="h-5 w-5" />
                   </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Income</span>
-                    <span className="text-sm font-black text-white font-mono">৳ 85,000</span>
-                  </div>
+                  <h3 className="font-bold text-slate-100 text-sm leading-tight truncate">Accurate Bank Reconciliation</h3>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl flex items-center justify-center">
-                    <TrendingDown className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Expense</span>
-                    <span className="text-sm font-black text-white font-mono">৳ 52,300</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Reconciliation and AI Advisor Card */}
-            <div className="p-5 bg-white/5 border border-white/10 rounded-2xl shadow-xl backdrop-blur-md space-y-3 hover:border-white/15 transition duration-300 sm:col-span-2">
-              <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  <span className="text-[10px] font-bold text-white uppercase tracking-wider">Bank Reconciliation</span>
-                </div>
-                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                  Completed
+                <span className="text-[9px] bg-emerald-400/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider shrink-0">
+                  Ready
                 </span>
               </div>
-              <div className="flex items-start gap-3 bg-blue-500/5 border border-blue-500/10 rounded-xl p-3">
-                <BrainCircuit className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <span className="text-[10px] text-blue-300 font-bold uppercase tracking-wider block">AI Advisor Insight</span>
-                  <p className="text-[11px] text-slate-300 leading-normal">
-                    "Your debt-to-income ratio improved by 4.2% this month. Consider allocating ৳5,000 extra to savings or high-interest debts."
-                  </p>
+              <p className="text-slate-200 text-xs leading-relaxed font-normal">
+                Match statements with ledger records and identify differences efficiently.
+              </p>
+            </div>
+
+            {/* Feature 4 */}
+            <div className="p-5 bg-white/10 border border-white/15 rounded-2xl shadow-sm backdrop-blur-md space-y-3 hover:bg-white/12 hover:border-white/20 transition duration-300">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-10 bg-violet-400/10 border border-violet-400/20 text-violet-300 rounded-xl flex items-center justify-center shrink-0">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-bold text-slate-100 text-sm leading-tight truncate">AI-Assisted Financial Guidance</h3>
                 </div>
+                <span className="text-[9px] bg-violet-400/20 text-violet-300 border border-violet-400/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider shrink-0">
+                  Smart Insights
+                </span>
               </div>
+              <p className="text-slate-200 text-xs leading-relaxed font-normal">
+                Receive clear insights based on the financial data stored in your workspace.
+              </p>
             </div>
 
           </div>
         </div>
 
         {/* Footer/Trust Indicators */}
-        <div className="relative z-10 text-center md:text-left text-[11px] text-slate-500 font-medium">
-          Secure bank-grade 256-bit SSL encryption active.
+        <div className="relative z-10 flex items-center gap-2 justify-center md:justify-start text-xs text-slate-200 font-medium">
+          <ShieldCheck className="h-4.5 w-4.5 text-blue-300 shrink-0" />
+          <span>Secure financial workspace with protected account access</span>
         </div>
       </div>
     </div>
