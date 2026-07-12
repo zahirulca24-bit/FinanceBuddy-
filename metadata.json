@@ -1,0 +1,6 @@
+{
+  "name": "Finance Buddy",
+  "description": "A universal personal accounting application with a Google AI Adviser, managing transactions, accounts, bank reconciliations, tax preparation, and delivering explainable financial advice.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

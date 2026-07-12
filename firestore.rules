@@ -1,0 +1,141 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net: Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return userId == "personal_workspace" || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Validation functions for each entity type to prevent invalid data or shadow fields
+
+    function isValidAccount(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.name is string && data.name.size() <= 150
+        && data.type is string && data.type.size() <= 50
+        && data.initialBalance is number;
+    }
+
+    function isValidTransaction(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.date is string && data.date.size() <= 25
+        && data.type is string && data.type.size() <= 25
+        && data.account is string && data.account.size() <= 128
+        && data.amount is number;
+    }
+
+    function isValidCategory(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.name is string && data.name.size() <= 150
+        && data.type is string && data.type.size() <= 25;
+    }
+
+    function isValidReconciliation(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.accountId is string && data.accountId.size() <= 128
+        && data.accountName is string && data.accountName.size() <= 150
+        && data.startDate is string && data.startDate.size() <= 25
+        && data.endDate is string && data.endDate.size() <= 25
+        && data.openingBalance is number
+        && data.closingBalance is number
+        && data.status is string && data.status.size() <= 25;
+    }
+
+    function isValidBudget(data) {
+      return data != null; // Simple map structure
+    }
+
+    function isValidTaxProfile(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.taxpayerName is string && data.taxpayerName.size() <= 150
+        && data.tin is string && data.tin.size() <= 50
+        && data.taxYear is string && data.taxYear.size() <= 25;
+    }
+
+    function isValidTaxConfiguration(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.taxYear is string && data.taxYear.size() <= 25
+        && data.isActive is bool
+        && data.taxFreeThreshold is number;
+    }
+
+    function isValidTaxCalculation(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.taxYear is string && data.taxYear.size() <= 25
+        && data.profileId is string && data.profileId.size() <= 128
+        && data.status is string && data.status.size() <= 25;
+    }
+
+    // Matches nested collections of users
+    match /users/{userId} {
+      
+      match /accounts/{accountId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidAccount(request.resource.data) && isValidId(accountId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /transactions/{transactionId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidTransaction(request.resource.data) && isValidId(transactionId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /categories/{categoryId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidCategory(request.resource.data) && isValidId(categoryId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /reconciliations/{reconciliationId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidReconciliation(request.resource.data) && isValidId(reconciliationId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /budgets/{budgetId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidBudget(request.resource.data) && isValidId(budgetId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /taxProfiles/{profileId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidTaxProfile(request.resource.data) && isValidId(profileId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /taxConfigurations/{configId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidTaxConfiguration(request.resource.data) && isValidId(configId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /taxCalculations/{calculationId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidTaxCalculation(request.resource.data) && isValidId(calculationId);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

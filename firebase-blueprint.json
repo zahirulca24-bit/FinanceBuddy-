@@ -1,0 +1,200 @@
+{
+  "entities": {
+    "Account": {
+      "title": "Account",
+      "description": "A personal or bank account storing current balance, savings goals, and metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["Cash", "Bank account", "bKash", "Nagad", "Rocket", "Credit card", "Loan account", "Investment account", "Custom account"] },
+        "initialBalance": { "type": "number" },
+        "targetGoal": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "type", "initialBalance"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "An accounting entry representing income, expense, or transfer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "type": { "type": "string", "enum": ["Income", "Expense", "Transfer"] },
+        "account": { "type": "string" },
+        "toAccount": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "referenceNumber": { "type": "string" },
+        "notes": { "type": "string" },
+        "isReceivable": { "type": "boolean" },
+        "isPayable": { "type": "boolean" },
+        "isCleared": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "date", "type", "amount", "account"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "A financial category for organizing income and expenses.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["Income", "Expense"] },
+        "isDefault": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "name", "type"]
+    },
+    "ReconciliationRecord": {
+      "title": "ReconciliationRecord",
+      "description": "A bank reconciliation worksheet tracking matching rows and ledger adjustments.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "accountId": { "type": "string" },
+        "accountName": { "type": "string" },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "openingBalance": { "type": "number" },
+        "closingBalance": { "type": "number" },
+        "status": { "type": "string", "enum": ["Draft", "Completed"] },
+        "createdDate": { "type": "string", "format": "date-time" },
+        "completedDate": { "type": "string", "format": "date-time" },
+        "statementFileName": { "type": "string" },
+        "statementFileSize": { "type": "number" },
+        "statementRows": { "type": "array" },
+        "adjustments": { "type": "array" },
+        "summary": { "type": "object" },
+        "preparedBy": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "userId", "accountId", "accountName", "startDate", "endDate", "openingBalance", "closingBalance", "status", "createdDate"]
+    },
+    "Budget": {
+      "title": "Budget",
+      "description": "Budget limits for each category mapping.",
+      "type": "object",
+      "properties": {
+        "categoryBudgets": { "type": "object" }
+      }
+    },
+    "TaxProfile": {
+      "title": "TaxProfile",
+      "description": "Taxpayer demographics and jurisdictional details.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "taxpayerName": { "type": "string" },
+        "tin": { "type": "string" },
+        "taxYear": { "type": "string" },
+        "assessmentYear": { "type": "string" },
+        "residencyStatus": { "type": "string", "enum": ["Resident", "Non-Resident"] },
+        "genderCategory": { "type": "string", "enum": ["General", "Female", "Senior (65+)", "Person with Disability", "Freedom Fighter"] },
+        "dateOfBirth": { "type": "string", "format": "date" },
+        "employmentStatus": { "type": "string" },
+        "mainSourceOfIncome": { "type": "string" },
+        "taxJurisdiction": { "type": "string", "enum": ["Dhaka/Chittagong City", "Other City Corporation", "Outside City Corporation"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "taxpayerName", "tin", "taxYear", "assessmentYear", "residencyStatus", "genderCategory", "dateOfBirth", "employmentStatus", "mainSourceOfIncome", "taxJurisdiction", "createdAt", "updatedAt"]
+    },
+    "TaxConfiguration": {
+      "title": "TaxConfiguration",
+      "description": "Tax slab brackets, minimum taxes, thresholds, and rebates of a fiscal year.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "taxYear": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "taxFreeThreshold": { "type": "number" },
+        "specialThresholds": { "type": "object" },
+        "minimumTax": { "type": "object" },
+        "investmentRebateRate": { "type": "number" },
+        "rebatePercentageOfIncome": { "type": "number" },
+        "maxRebateLimit": { "type": "number" },
+        "surchargeRates": { "type": "array" },
+        "roundingRule": { "type": "string", "enum": ["Nearest 1", "Nearest 10", "Nearest 100", "Normal"] },
+        "slabs": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "taxYear", "isActive", "taxFreeThreshold", "specialThresholds", "minimumTax", "investmentRebateRate", "rebatePercentageOfIncome", "maxRebateLimit", "roundingRule", "slabs", "createdAt", "updatedAt"]
+    },
+    "TaxCalculationRecord": {
+      "title": "TaxCalculationRecord",
+      "description": "Full audit log of active draft or finalized income tax assessment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "taxYear": { "type": "string" },
+        "assessmentYear": { "type": "string" },
+        "profileId": { "type": "string" },
+        "profile": { "type": "object" },
+        "status": { "type": "string", "enum": ["Draft", "Under Review", "Finalized"] },
+        "version": { "type": "number" },
+        "createdDate": { "type": "string", "format": "date-time" },
+        "finalizedDate": { "type": "string", "format": "date-time" },
+        "incomeItems": { "type": "array" },
+        "salaryDetails": { "type": "object" },
+        "deductions": { "type": "array" },
+        "exemptIncomes": { "type": "array" },
+        "taxPaidItems": { "type": "array" },
+        "taxConfigUsed": { "type": "object" },
+        "summary": { "type": "object" },
+        "notes": { "type": "string" },
+        "preparedBy": { "type": "string" },
+        "preparationDate": { "type": "string", "format": "date" },
+        "assumptions": { "type": "string" },
+        "auditTrail": { "type": "array" }
+      },
+      "required": ["id", "userId", "taxYear", "assessmentYear", "profileId", "profile", "status", "version", "createdDate", "incomeItems", "salaryDetails", "deductions", "exemptIncomes", "taxPaidItems", "taxConfigUsed", "summary", "preparedBy", "preparationDate", "auditTrail"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/accounts/{accountId}": {
+      "schema": "Account",
+      "description": "User accounts (e.g. Cash, Bank, Mobile banking)."
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "User income, expense, and transfer transactions."
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Custom or standard financial categories for the user."
+    },
+    "/users/{userId}/reconciliations/{reconciliationId}": {
+      "schema": "ReconciliationRecord",
+      "description": "User bank reconciliation worksheets."
+    },
+    "/users/{userId}/budgets/{budgetId}": {
+      "schema": "Budget",
+      "description": "Budget definitions for category expenses."
+    },
+    "/users/{userId}/taxProfiles/{profileId}": {
+      "schema": "TaxProfile",
+      "description": "Demographic profiles of taxpayers."
+    },
+    "/users/{userId}/taxConfigurations/{configId}": {
+      "schema": "TaxConfiguration",
+      "description": "Tax rates, thresholds, and slab configurations."
+    },
+    "/users/{userId}/taxCalculations/{calculationId}": {
+      "schema": "TaxCalculationRecord",
+      "description": "Historical saved tax computations and statements."
+    }
+  }
+}
